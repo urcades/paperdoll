@@ -1,0 +1,25 @@
+# Changelog
+
+## 0.4.0 — 2026-07-08
+
+### Breaking
+
+- `connect` now throws on self-connections and non-face-opposite endpoints instead of silently producing an invalid body.
+- `parseDocument` / `validateDocument` reject unknown keys at the document, body, slot, pool, port, accept-token, and contained-element levels. Presentation or consumer data can no longer ride along inside protocol documents.
+- `parseDocument` returns a deep copy of the input instead of aliasing it; mutating the original input no longer affects the parsed value.
+- Generated slot ids changed from `new-node-N` to `slot-N`, and generated slot ids now avoid collisions with pool ids (and vice versa).
+- Derived pool positions are assigned in sorted pool-id order rather than object insertion order, making layout robust across serialization round-trips.
+- `insertSlot`'s slot argument is now typed `Omit<BodySlot, "ports">`; ports were always discarded, and the type now says so.
+
+### Added
+
+- `insertSlot` and `insertPool` accept an `options.id` to choose the new node's id explicitly. Invalid or already-taken ids throw.
+- `InsertOptions` type export.
+
+### Documentation
+
+- README and core ontology now state precisely which invariants the mutation helpers enforce (local, structural) and which remain the caller's responsibility to check via `parseDocument` / `validateDocument` after a batch of edits (reachability, layout collisions).
+
+## 0.3.0 and earlier
+
+Pre-git history. See `docs/rfc-containment-and-constraints.md` for the v0 → v1 protocol migration (removal of `body.zones` / `body.equipped` in favor of `body.pools` and `contains`).

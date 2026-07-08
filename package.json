@@ -1,0 +1,52 @@
+{
+  "name": "paperdoll",
+  "version": "0.4.0",
+  "private": false,
+  "license": "MIT",
+  "description": "A TypeScript protocol library for body-like containment graphs.",
+  "author": "Edouard Urcades <edouard@urcad.es>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/urcades/paperdoll.git"
+  },
+  "bugs": {
+    "url": "https://github.com/urcades/paperdoll/issues"
+  },
+  "homepage": "https://github.com/urcades/paperdoll#readme",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "paperdoll",
+    "inventory",
+    "containment",
+    "game-dev",
+    "typescript"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "npm run typecheck && npm test && npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
