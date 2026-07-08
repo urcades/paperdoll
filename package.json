@@ -1,6 +1,6 @@
 {
   "name": "paperdoll",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": false,
   "license": "MIT",
   "description": "A TypeScript protocol library for body-like containment graphs.",

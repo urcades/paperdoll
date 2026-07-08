@@ -4,9 +4,14 @@ import {
   deletePool,
   deleteSlot,
   deriveLayout,
+  insertElement,
   insertPool,
   insertSlot,
+  isAccepted,
+  matches,
+  moveElement,
   parseDocument,
+  removeElement,
   type PaperDollDocument
 } from "../src/protocol";
 import { DEFAULT_DOCUMENT } from "./sample-document";
@@ -349,5 +354,108 @@ describe("paper doll protocol", () => {
 
   it("deleteSlot refuses to delete the root slot", () => {
     expect(() => deleteSlot(DEFAULT_DOCUMENT.body, "body")).toThrow("Cannot delete root slot");
+  });
+
+  it("matches compares kind and optionally type", () => {
+    expect(matches({ kind: "item" }, { kind: "item", type: "hat" })).toBe(true);
+    expect(matches({ kind: "item", type: "hat" }, { kind: "item", type: "hat" })).toBe(true);
+    expect(matches({ kind: "item", type: "hat" }, { kind: "item", type: "sword" })).toBe(false);
+    expect(matches({ kind: "item", type: "hat" }, { kind: "item" })).toBe(false);
+    expect(matches({ kind: "effect" }, { kind: "item" })).toBe(false);
+  });
+
+  it("isAccepted treats absent accepts as open and empty accepts as sealed", () => {
+    expect(isAccepted({}, { kind: "item" })).toBe(true);
+    expect(isAccepted({ accepts: [] }, { kind: "item" })).toBe(false);
+    expect(isAccepted({ accepts: [{ kind: "item", type: "hat" }] }, { kind: "item", type: "hat" })).toBe(true);
+    expect(isAccepted({ accepts: [{ kind: "item", type: "hat" }] }, { kind: "item", type: "boot" })).toBe(false);
+  });
+
+  it("accepts contained elements with a type field", () => {
+    const document = cloneDocument();
+    document.body.slots.head.contains = [{ kind: "item", type: "hat", id: "straw-hat" }];
+
+    expect(parseDocument(document).ok).toBe(true);
+  });
+
+  it("rejects invalid contained element type", () => {
+    const document = cloneDocument();
+    document.body.slots.head.contains = [{ kind: "item", type: "Straw_Hat" }];
+
+    const parsed = parseDocument(document);
+    expect(parsed.ok).toBe(false);
+    expect(errorMessages(parsed)).toContain("Contained element type must be a lowercase id");
+  });
+
+  it("insertElement appends to slots and pools immutably", () => {
+    const before = structuredClone(DEFAULT_DOCUMENT.body);
+    const next = insertElement(DEFAULT_DOCUMENT.body, { slot: "head" }, { kind: "item", type: "head", id: "hood" });
+    const pooled = insertElement(next, { pool: "thrown" }, { kind: "item", type: "thrown", id: "javelin" });
+
+    expect(DEFAULT_DOCUMENT.body).toEqual(before);
+    expect(next.slots.head.contains).toEqual([
+      { kind: "item", id: "salve-hood" },
+      { kind: "item", type: "head", id: "hood" }
+    ]);
+    expect(pooled.pools.thrown.contains).toEqual([{ kind: "item", type: "thrown", id: "javelin" }]);
+  });
+
+  it("insertElement enforces compatibility when asked", () => {
+    expect(() =>
+      insertElement(DEFAULT_DOCUMENT.body, { slot: "head" }, { kind: "item", type: "boot" }, { checkCompatibility: true })
+    ).toThrow('Element "item/boot" is not accepted by slot "head"');
+
+    const ok = insertElement(
+      DEFAULT_DOCUMENT.body,
+      { slot: "head" },
+      { kind: "item", type: "head" },
+      { checkCompatibility: true }
+    );
+    expect(ok.slots.head.contains).toHaveLength(2);
+  });
+
+  it("insertElement validates the element envelope and target", () => {
+    expect(() => insertElement(DEFAULT_DOCUMENT.body, { slot: "head" }, { kind: "Not An Id" })).toThrow("lowercase id");
+    expect(() => insertElement(DEFAULT_DOCUMENT.body, { slot: "ghost" }, { kind: "item" })).toThrow(
+      'missing slot "ghost"'
+    );
+    expect(() => insertElement(DEFAULT_DOCUMENT.body, { pool: "ghost" }, { kind: "item" })).toThrow(
+      'missing pool "ghost"'
+    );
+  });
+
+  it("removeElement returns the removed element and a new body", () => {
+    const before = structuredClone(DEFAULT_DOCUMENT.body);
+    const { body: next, element } = removeElement(DEFAULT_DOCUMENT.body, { slot: "left-hand" }, 0);
+
+    expect(DEFAULT_DOCUMENT.body).toEqual(before);
+    expect(element).toEqual({ kind: "item", id: "steel-dagger" });
+    expect(next.slots["left-hand"].contains).toEqual([]);
+    expect(() => removeElement(next, { slot: "left-hand" }, 0)).toThrow("No element at index 0");
+  });
+
+  it("moveElement is atomic and checks the destination before removing", () => {
+    const next = moveElement(DEFAULT_DOCUMENT.body, { slot: "left-hand" }, 0, { slot: "right-hand" });
+    expect(next.slots["left-hand"].contains).toEqual([]);
+    expect(next.slots["right-hand"].contains).toEqual([
+      { kind: "item", id: "torch" },
+      { kind: "item", id: "steel-dagger" }
+    ]);
+
+    const sealed = structuredClone(DEFAULT_DOCUMENT.body);
+    sealed.slots.head.accepts = [];
+    expect(() =>
+      moveElement(sealed, { slot: "left-hand" }, 0, { slot: "head" }, { checkCompatibility: true })
+    ).toThrow("not accepted");
+    expect(sealed.slots["left-hand"].contains).toHaveLength(1);
+  });
+
+  it("moveElement supports moving within the same container", () => {
+    const stocked = insertElement(DEFAULT_DOCUMENT.body, { slot: "feet" }, { kind: "item", id: "sandals" });
+    const next = moveElement(stocked, { slot: "feet" }, 0, { slot: "feet" });
+    expect(next.slots.feet.contains).toEqual([
+      { kind: "item", id: "sandals" },
+      { kind: "item", id: "leather-moccasins" }
+    ]);
   });
 });

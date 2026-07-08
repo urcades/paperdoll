@@ -71,6 +71,25 @@ const { body: pooledBody, poolId } = insertPool(nextBody, {
 
 All editing helpers return new objects and do not mutate their inputs. `insertSlot` and `insertPool` generate ids (`slot-N`, `pool-N`) unless you pass `{ id }` in the final options argument.
 
+## Containment and Compatibility
+
+```ts
+import { insertElement, moveElement, removeElement, isAccepted, matches } from "paperdoll";
+
+// append an element to a slot or pool
+const stocked = insertElement(body, { slot: "head" }, { kind: "item", type: "hat", id: "straw-hat" });
+
+// enforce accept tokens at the door
+insertElement(body, { slot: "feet" }, { kind: "item", type: "hat" }, { checkCompatibility: true });
+// throws: Element "item/hat" is not accepted by slot "feet".
+
+// remove by index; move atomically between containers
+const { body: lighter, element } = removeElement(stocked, { slot: "head" }, 0);
+const swapped = moveElement(body, { slot: "left-hand" }, 0, { slot: "right-hand" });
+```
+
+Matching is structural: a token `{ kind, type? }` matches an element when kinds are equal and the token's `type`, if present, equals the element's `type`. A container with no `accepts` is open; `accepts: []` is sealed; a non-empty `accepts` admits only matching elements. Compatibility checking is opt-in (`checkCompatibility: true`) in v1 and becomes a validation law in v2 — see [`docs/rfc-vessel-calculus.md`](docs/rfc-vessel-calculus.md).
+
 ### What the helpers enforce
 
 Mutation helpers enforce local structural invariants and throw on violations: endpoints must reference existing slots, connections must be face-opposite, and a slot cannot connect to itself. Graph-global properties — reachability from the root and derived-layout collisions — are intentionally not re-checked on every edit, because multi-step edits (disconnect, then reconnect elsewhere) pass through states that are locally sound but globally incomplete. After a batch of edits, validate the result with `parseDocument` or `validateDocument` before treating it as a protocol document.
@@ -94,7 +113,8 @@ The public API exports:
 - constants: `PAPER_DOLL_PROTOCOL`, `SIDES`, `OPPOSITE_SIDES`
 - validation: `parseDocument`, `assertDocument`, `validateDocument`, `formatProtocolErrors`
 - graph/layout: `deriveConnections`, `deriveLayout`
-- mutation helpers: `connect`, `disconnect`, `insertSlot`, `deleteSlot`, `insertPool`, `deletePool`
+- compatibility queries: `matches`, `isAccepted`
+- mutation helpers: `connect`, `disconnect`, `insertSlot`, `deleteSlot`, `insertPool`, `deletePool`, `insertElement`, `removeElement`, `moveElement`
 - types: `AcceptToken`, `Body`, `BodySlot`, `ContainedElement`, `DerivedLayout`, `DerivedNode`, `Endpoint`, `InsertOptions`, `JsonValue`, `PaperDollDocument`, `Pool`, `PoolId`, `Side`, `SlotId`, and related helper types
 
 The v1 parser rejects legacy `body.zones`, `body.equipped`, and string-based `accepts` values. Use `body.pools`, `slot.contains` / `pool.contains`, and typed accept tokens instead.

@@ -22,6 +22,7 @@ export type AcceptToken = {
 
 export type ContainedElement = {
   kind: string;
+  type?: string;
   id?: string;
   data?: JsonValue;
 };
@@ -54,6 +55,12 @@ export type DeleteSlotOptions = {
 
 export type InsertOptions = {
   id?: string;
+};
+
+export type ContainmentTarget = { slot: SlotId } | { pool: PoolId };
+
+export type ContainmentOptions = {
+  checkCompatibility?: boolean;
 };
 
 export type PaperDollDocument = {
@@ -251,6 +258,75 @@ export function insertPool(body: Body, pool: Pool = {}, options: InsertOptions =
     },
     poolId
   };
+}
+
+export function matches(token: AcceptToken, element: ContainedElement): boolean {
+  return token.kind === element.kind && (token.type === undefined || token.type === element.type);
+}
+
+export function isAccepted(
+  container: { accepts?: readonly AcceptToken[] },
+  element: ContainedElement
+): boolean {
+  if (container.accepts === undefined) return true;
+  return container.accepts.some((token) => matches(token, element));
+}
+
+export function insertElement(
+  body: Body,
+  target: ContainmentTarget,
+  element: ContainedElement,
+  options: ContainmentOptions = {}
+): Body {
+  assertElement(element);
+  assertCompatible(getContainer(body, target), element, target, options);
+
+  const next = cloneBody(body);
+  const container = getContainer(next, target);
+  container.contains = [...(container.contains ?? []), cloneElement(element)];
+  return next;
+}
+
+export function removeElement(
+  body: Body,
+  target: ContainmentTarget,
+  index: number
+): { body: Body; element: ContainedElement } {
+  const elements = getContainer(body, target).contains ?? [];
+  if (!Number.isInteger(index) || index < 0 || index >= elements.length) {
+    throw new Error(`No element at index ${index} in ${describeTarget(target)}.`);
+  }
+
+  const next = cloneBody(body);
+  const container = getContainer(next, target);
+  const remaining = [...(container.contains ?? [])];
+  const [removed] = remaining.splice(index, 1);
+  container.contains = remaining;
+  return { body: next, element: removed as ContainedElement };
+}
+
+export function moveElement(
+  body: Body,
+  from: ContainmentTarget,
+  index: number,
+  to: ContainmentTarget,
+  options: ContainmentOptions = {}
+): Body {
+  const elements = getContainer(body, from).contains ?? [];
+  const element = elements[index];
+  if (!Number.isInteger(index) || !element) {
+    throw new Error(`No element at index ${index} in ${describeTarget(from)}.`);
+  }
+  assertCompatible(getContainer(body, to), element, to, options);
+
+  const next = cloneBody(body);
+  const source = getContainer(next, from);
+  const remaining = [...(source.contains ?? [])];
+  const [moved] = remaining.splice(index, 1);
+  source.contains = remaining;
+  const destination = getContainer(next, to);
+  destination.contains = [...(destination.contains ?? []), moved as ContainedElement];
+  return next;
 }
 
 export function deletePool(body: Body, poolId: PoolId): Body {
@@ -558,9 +634,12 @@ function validateContainedElement(value: unknown, path: string, errors: Protocol
     return;
   }
 
-  validateKnownKeys(value, ["kind", "id", "data"], path, errors);
+  validateKnownKeys(value, ["kind", "type", "id", "data"], path, errors);
   if (!isId(value.kind)) {
     errors.push({ path: `${path}.kind`, message: "Contained element kind must be a lowercase id." });
+  }
+  if (value.type !== undefined && !isId(value.type)) {
+    errors.push({ path: `${path}.type`, message: "Contained element type must be a lowercase id." });
   }
   if (value.id !== undefined && typeof value.id !== "string") {
     errors.push({ path: `${path}.id`, message: "Contained element id must be a string." });
@@ -638,7 +717,7 @@ function cloneAcceptTokens(tokens: readonly AcceptToken[] | undefined): AcceptTo
 }
 
 function cloneContainedElements(elements: readonly ContainedElement[] | undefined): ContainedElement[] | undefined {
-  return elements ? elements.map((element) => ({ ...element, data: cloneJsonValue(element.data) })) : undefined;
+  return elements ? elements.map(cloneElement) : undefined;
 }
 
 function cloneJsonValue(value: JsonValue | undefined): JsonValue | undefined {
@@ -681,6 +760,47 @@ function nextPoolId(body: Body): PoolId {
   let index = 1;
   while (body.pools[`pool-${index}`] || body.slots[`pool-${index}`]) index += 1;
   return `pool-${index}`;
+}
+
+function getContainer(body: Body, target: ContainmentTarget): BodySlot | Pool {
+  if ("slot" in target) {
+    const slot = body.slots[target.slot];
+    if (!slot) throw new Error(`Target references missing slot "${target.slot}".`);
+    return slot;
+  }
+  const pool = body.pools[target.pool];
+  if (!pool) throw new Error(`Target references missing pool "${target.pool}".`);
+  return pool;
+}
+
+function describeTarget(target: ContainmentTarget): string {
+  return "slot" in target ? `slot "${target.slot}"` : `pool "${target.pool}"`;
+}
+
+function assertElement(element: ContainedElement): void {
+  if (!isId(element.kind)) {
+    throw new Error("Contained element kind must be a lowercase id.");
+  }
+  if (element.type !== undefined && !isId(element.type)) {
+    throw new Error("Contained element type must be a lowercase id.");
+  }
+}
+
+function assertCompatible(
+  container: BodySlot | Pool,
+  element: ContainedElement,
+  target: ContainmentTarget,
+  options: ContainmentOptions
+): void {
+  if (!options.checkCompatibility) return;
+  if (!isAccepted(container, element)) {
+    const label = element.type ? `${element.kind}/${element.type}` : element.kind;
+    throw new Error(`Element "${label}" is not accepted by ${describeTarget(target)}.`);
+  }
+}
+
+function cloneElement(element: ContainedElement): ContainedElement {
+  return { ...element, data: cloneJsonValue(element.data) };
 }
 
 function assertAvailableId(body: Body, id: string): void {

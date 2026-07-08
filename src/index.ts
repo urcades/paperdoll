@@ -10,9 +10,14 @@ export {
   deriveLayout,
   disconnect,
   formatProtocolErrors,
-  insertSlot,
+  insertElement,
   insertPool,
+  insertSlot,
+  isAccepted,
+  matches,
+  moveElement,
   parseDocument,
+  removeElement,
   validateDocument
 } from "./protocol.js";
 
@@ -22,6 +27,8 @@ export type {
   BodySlot,
   Connection,
   ContainedElement,
+  ContainmentOptions,
+  ContainmentTarget,
   DeleteSlotOptions,
   InsertOptions,
   DerivedLayout,

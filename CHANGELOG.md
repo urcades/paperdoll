@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 — 2026-07-08
+
+Step 1 of the vessel-calculus roadmap (`docs/rfc-vessel-calculus.md`): the containment API, fully additive.
+
+### Added
+
+- `insertElement`, `removeElement`, `moveElement` — pure containment mutations for slots and pools, closing the gap where `contains` arrays had to be hand-edited outside the invariant-preserving API. `moveElement` checks its destination before removing, so it is atomic.
+- `matches(token, element)` and `isAccepted(container, element)` — structural compatibility queries. Absent `accepts` is open; `accepts: []` is sealed; a non-empty set admits only matching elements.
+- Opt-in enforcement: pass `{ checkCompatibility: true }` to `insertElement` / `moveElement` to reject elements the target does not accept. Becomes a validation law in v2.
+- `ContainedElement.type` — optional lowercase id completing the `{ kind, type }` join with accept tokens.
+- Type exports: `ContainmentTarget`, `ContainmentOptions`.
+
+
 ## 0.4.0 — 2026-07-08
 
 ### Breaking
