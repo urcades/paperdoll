@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0 — 2026-07-08
+
+Step 2 of the vessel-calculus roadmap: the `paper-doll/v2` protocol. Breaking throughout; v1 documents migrate with `migrateV1()`.
+
+### The unification
+
+- `slots` and `pools` merge into a single `body.vessels` map. `Pool`, `PoolId`, `BodySlot`, `SlotId`, `insertPool`, `deletePool`, `insertSlot`, `deleteSlot` are gone; `Vessel`, `VesselId`, `insertVessel`, `deleteVessel` replace them. "Pool" is now a derived property (a port-less vessel outside the figure), not a stored kind.
+- Port addresses are `{ vessel, side }` instead of `{ slot, side }`; `Endpoint` likewise.
+- `insertVessel(body, vessel, { at?, id? })` covers both former inserts: with `at` it bridges into the figure; without it creates a free vessel. New vessels no longer default to `accepts: []` — in v2 that means sealed; absent means open.
+- Derived layout is `{ figure, free, connections }`: coordinates for the figure, a sorted id list for free vessels (the v1 pool-column heuristic is deleted — placement of free vessels is a renderer decision), and `deriveLayout` now takes a `Body`.
+
+### Laws
+
+- Compatibility (law 6) is mandatory: validation rejects any element that fails its vessel's declared `accepts`, and `insertElement` / `moveElement` always enforce it (the v1.x `checkCompatibility` opt-in and `ContainmentTarget` / `ContainmentOptions` types are gone — targets are vessel ids).
+- Recursion (law 7): an element may embed a full `Body` in `element.body`; validation applies all laws at every depth. `data` remains opaque to the protocol, always.
+
+### Migration and portability
+
+- `migrateV1(document)` mechanically converts v1 documents: merges slots and pools (id collisions are errors), rewrites port addresses, and validates the result — v1 documents whose contents violate their own `accepts` fail with precise errors.
+- The v2 parser rejects v1 documents with errors pointing at `migrateV1`.
+- `schema/paper-doll-v2.schema.json` ships in the package: a JSON Schema (2020-12) for the document format, with the beyond-schema laws specified in `docs/rfc-vessel-calculus.md`.
+
+
 ## 0.5.0 — 2026-07-08
 
 Step 1 of the vessel-calculus roadmap (`docs/rfc-vessel-calculus.md`): the containment API, fully additive.

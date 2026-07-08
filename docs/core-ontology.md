@@ -2,129 +2,59 @@
 
 This note records the current protocol boundary for `paperdoll`.
 
-`paperdoll` is a thin arrangement and containment protocol for body-like systems. It models one rooted physical graph plus zero or more body-level pools. It does not model presentation, item behavior, localization, or game-specific inventory rules.
+`paperdoll` is a thin arrangement and containment protocol for body-like systems — an algebra for arranging vessels. It models a set of named vessels: one rooted, connected figure plus zero or more free vessels, any of which may contain opaque elements or entire embedded bodies. It does not model presentation, item behavior, localization, or game-specific inventory rules.
 
 ## Core Model
 
-The core protocol owns these concepts:
+The core protocol owns three primitives and one judgment:
 
-- `Body`: the model root for one body-like arrangement.
-- `Slot`: a physical node in the rooted body graph.
-- `Port`: one directional connection face on a slot: `top`, `right`, `bottom`, or `left`.
+- `Vessel`: a container with optional compatibility declarations (`accepts`), optional contents (`contains`), and optional connection faces (`ports`).
+- `Body`: a set of named vessels with one distinguished root. The **figure** is the connected component of the root; a port-less vessel outside the figure is **free** (a derived property, not a stored kind).
+- `Element`: a thing contained: `{ kind, type?, id?, data?, body? }`. Opaque to the protocol except for its typed envelope, and except when it embeds a `body`, which is validated recursively.
+- `Validity`: the judgment. Seven laws — rootedness, reciprocity, opposition, planarity, reachability, compatibility, recursive validity — applied at every depth. See `rfc-vessel-calculus.md`.
+
+Supporting concepts:
+
+- `Port`: one directional connection face on a vessel: `top`, `right`, `bottom`, or `left`.
 - `Connection`: a reciprocal, face-opposite relationship between two ports.
-- `Pool`: an edge-less, body-level containment collection that does not participate in graph reachability.
-- `AcceptToken`: a typed compatibility token with `{ kind, type? }`.
-- `ContainedElement`: an opaque contained element envelope with `{ kind, id?, data? }`.
-- `DerivedLayout`: deterministic abstract coordinates derived from the rooted body graph, plus deterministic pool positions.
-- `Mutation`: pure operations that return new bodies. Helpers enforce local structural invariants (existing endpoints, face-opposite connections, no self-connections) and throw on violation; graph-global properties (root reachability, layout collisions) are checked by validation, which callers run after a batch of edits.
-- `Validation`: runtime checks for external JSON or editor input.
+- `AcceptToken`: a typed compatibility token with `{ kind, type? }`. Matching is structural; the envelope is the type.
+- `DerivedLayout`: deterministic abstract coordinates for the figure, plus the sorted list of free vessels.
+- `Mutation`: pure operations that return new bodies. Operations enforce local laws (existing endpoints, opposition, no self-connections, compatibility) and throw on violation; graph-global laws (planarity, reachability) are checked by validation, which callers run after a batch of edits.
 
 The protocol is intentionally narrow. It should answer questions like:
 
-- Is this body valid?
-- Which physical slots are connected?
-- Is every physical slot reachable from the root?
-- Do all connections reciprocate through opposite faces?
-- What abstract coordinates fall out of the rooted graph?
-- Which body-level pools exist?
-- What slots or pools declare compatibility with a contained element kind/type?
-- What body results from inserting, deleting, connecting, or disconnecting nodes and pools?
+- Is this body valid, at every level of nesting?
+- Which vessels are connected, and what coordinates fall out of the rooted figure?
+- Which vessels are free?
+- May this element sit in this vessel?
+- What body results from inserting, deleting, connecting, disconnecting, or moving vessels and elements?
 
 ## Consumer Model
 
 Consumers own these concepts:
 
-- icons
-- labels and localized display names
-- colors
-- typography
-- node sizes
-- connector lengths
+- icons, labels, and localized display names
+- colors, typography, node sizes, connector lengths
 - canvas panning and zooming
 - selected, hovered, focused, and edited UI states
 - sprite or item art
 - item definitions and behavior
-- semantic interpretation of `AcceptToken`
-- semantic interpretation of `ContainedElement.data`
+- placement of free vessels on a canvas
+- semantic interpretation of `kind` and `type` (nominal typing is on trust; the protocol matches names, never meanings)
+- structural conformance of embedded bodies ("is this really mech-shaped?") — interfaces-for-bodies belong in a sibling protocol
+- semantic interpretation of `ContainedElement.data`, which is opaque to the protocol, always
 
-The protocol should not imply that a face slot is represented by a glyph, that a hand is rendered with a particular label, or that derived coordinates map to a specific pixel grid. Those are renderer decisions.
+## Typing
 
-## Current Decisions
+**Bodies do not have types; elements do.** A body acquires a type only at the moment it is contained, via its envelope. A vessel's `accepts` governs what may sit in it; an embedded body's own vessels govern what *it* contains. Absent `accepts` is open, `accepts: []` is sealed, a non-empty set admits only matching elements.
 
-The protocol document uses `protocol: "paper-doll/v1"`.
+## Version History
 
-The following presentation fields are not part of the protocol:
-
-- `icon`
-- `label`
-- `view`
-
-The following v0 equipment-interface concepts are removed:
-
-- `body.zones`
-- `body.equipped`
-- `EquipmentZone`
-- `insertZone`
-- `deleteZone`
-
-The v1 replacements are:
-
-- `body.pools`
-- `Pool`
-- `insertPool`
-- `deletePool`
-- `slot.contains`
-- `pool.contains`
-
-## Pools
-
-A `Body` has exactly one rooted physical slot graph and zero or more body-level pools.
-
-Pools are plural by design:
-
-```ts
-type Body = {
-  root: SlotId;
-  slots: Record<SlotId, BodySlot>;
-  pools: Record<PoolId, Pool>;
-};
-```
-
-Pools are not slots, cannot have ports, and are not required to be reachable from the root. They represent body-associated containment contexts such as floating, thrown, cargo, external modules, aura, nearby, or similar consumer-defined ideas.
-
-Slot-scoped pools are intentionally out of scope. Slot-local containment belongs in `slot.contains`.
-
-## Containment
-
-Slots and pools can both contain consumer-defined elements:
-
-```ts
-type ContainedElement = {
-  kind: string;
-  id?: string;
-  data?: JsonValue;
-};
-```
-
-`kind` is a lowercase protocol id. `id` is an optional consumer id. `data` is JSON-compatible and opaque to paperdoll.
-
-An RPG can interpret a contained item as "equipped." The protocol calls it "contained."
-
-## Compatibility
-
-Slots and pools can both declare typed accept tokens:
-
-```ts
-type AcceptToken = {
-  kind: string;
-  type?: string;
-};
-```
-
-`paperdoll` validates token shape and preserves tokens. Consumers decide what those tokens mean.
+- `paper-doll/v1` removed v0's equipment interface (`body.zones`, `body.equipped`) in favor of generalized containment (`contains`) and pools. See `rfc-containment-and-constraints.md`.
+- `paper-doll/v2` dissolved the slot/pool distinction into the single vessel primitive, made compatibility and recursive validity mandatory laws, added `element.body` for recursion, and published a JSON Schema. v1 documents migrate mechanically via `migrateV1`. See `rfc-vessel-calculus.md`.
 
 ## Working Principle
 
-`paperdoll` should remain a protocol and functional toolkit for arranging constrained, body-like containment graphs.
+`paperdoll` should remain a protocol and functional toolkit for arranging constrained, body-like containment graphs — annealed, not grown. Proposals are tested against one question: does this subtract a concept or add a law?
 
 It should not become a UI kit, an inventory system, a localization layer, or an item database.

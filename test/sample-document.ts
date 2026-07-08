@@ -5,97 +5,140 @@ export const DEFAULT_DOCUMENT: PaperDollDocument = {
   protocol: PAPER_DOLL_PROTOCOL,
   body: {
     root: "body",
-    slots: {
+    vessels: {
       face: {
         accepts: [{ kind: "item", type: "face" }],
-        contains: [{ kind: "item", id: "goggles" }],
-        ports: { bottom: { slot: "head", side: "top" } }
+        contains: [{ kind: "item", type: "face", id: "goggles" }],
+        ports: { bottom: { vessel: "head", side: "top" } }
       },
       head: {
         accepts: [{ kind: "item", type: "head" }],
-        contains: [{ kind: "item", id: "salve-hood" }],
+        contains: [{ kind: "item", type: "head", id: "salve-hood" }],
         ports: {
-          top: { slot: "face", side: "bottom" },
-          bottom: { slot: "body", side: "top" }
+          top: { vessel: "face", side: "bottom" },
+          bottom: { vessel: "body", side: "top" }
         }
       },
       "hands-worn": {
         accepts: [{ kind: "item", type: "hands" }],
-        ports: { right: { slot: "left-hand", side: "left" } }
+        ports: { right: { vessel: "left-hand", side: "left" } }
       },
       "left-hand": {
         accepts: [{ kind: "item", type: "weapon" }, { kind: "item", type: "tool" }],
-        contains: [{ kind: "item", id: "steel-dagger" }],
+        contains: [{ kind: "item", type: "weapon", id: "steel-dagger" }],
         ports: {
-          left: { slot: "hands-worn", side: "right" },
-          right: { slot: "left-arm", side: "left" }
+          left: { vessel: "hands-worn", side: "right" },
+          right: { vessel: "left-arm", side: "left" }
         }
       },
       "left-arm": {
         accepts: [{ kind: "item", type: "arm" }],
         ports: {
-          left: { slot: "left-hand", side: "right" },
-          right: { slot: "body", side: "left" }
+          left: { vessel: "left-hand", side: "right" },
+          right: { vessel: "body", side: "left" }
         }
       },
       body: {
         accepts: [{ kind: "item", type: "body" }],
-        contains: [{ kind: "item", id: "wet-recycling-suit" }],
+        contains: [{ kind: "item", type: "body", id: "wet-recycling-suit" }],
         ports: {
-          top: { slot: "head", side: "bottom" },
-          left: { slot: "left-arm", side: "right" },
-          right: { slot: "right-arm", side: "left" },
-          bottom: { slot: "back", side: "top" }
+          top: { vessel: "head", side: "bottom" },
+          left: { vessel: "left-arm", side: "right" },
+          right: { vessel: "right-arm", side: "left" },
+          bottom: { vessel: "back", side: "top" }
         }
       },
       "right-arm": {
         accepts: [{ kind: "item", type: "arm" }],
         ports: {
-          left: { slot: "body", side: "right" },
-          right: { slot: "right-hand", side: "left" }
+          left: { vessel: "body", side: "right" },
+          right: { vessel: "right-hand", side: "left" }
         }
       },
       "right-hand": {
         accepts: [{ kind: "item", type: "weapon" }, { kind: "item", type: "tool" }],
-        contains: [{ kind: "item", id: "torch" }],
-        ports: { left: { slot: "right-arm", side: "right" } }
+        contains: [{ kind: "item", type: "tool", id: "torch" }],
+        ports: { left: { vessel: "right-arm", side: "right" } }
       },
       back: {
         accepts: [{ kind: "item", type: "back" }],
+        contains: [
+          {
+            kind: "item",
+            type: "back",
+            id: "field-pack",
+            body: {
+              root: "main-pocket",
+              vessels: {
+                "main-pocket": {
+                  accepts: [{ kind: "item" }],
+                  contains: [{ kind: "item", type: "tool", id: "rope" }],
+                  ports: { bottom: { vessel: "side-pocket", side: "top" } }
+                },
+                "side-pocket": {
+                  contains: [{ kind: "item", type: "tool", id: "flint" }],
+                  ports: { top: { vessel: "main-pocket", side: "bottom" } }
+                }
+              }
+            }
+          }
+        ],
         ports: {
-          top: { slot: "body", side: "bottom" },
-          bottom: { slot: "feet", side: "top" }
+          top: { vessel: "body", side: "bottom" },
+          bottom: { vessel: "feet", side: "top" }
         }
       },
       feet: {
         accepts: [{ kind: "item", type: "feet" }],
-        contains: [{ kind: "item", id: "leather-moccasins" }],
+        contains: [{ kind: "item", type: "feet", id: "leather-moccasins" }],
         ports: {
-          top: { slot: "back", side: "bottom" },
-          right: { slot: "missile-left", side: "left" }
+          top: { vessel: "back", side: "bottom" },
+          right: { vessel: "missile-left", side: "left" }
         }
       },
       "missile-left": {
         accepts: [{ kind: "item", type: "missile" }],
-        contains: [{ kind: "item", id: "short-bow" }],
+        contains: [{ kind: "item", type: "missile", id: "short-bow" }],
         ports: {
-          left: { slot: "feet", side: "right" },
-          right: { slot: "missile-right", side: "left" }
+          left: { vessel: "feet", side: "right" },
+          right: { vessel: "missile-right", side: "left" }
         }
       },
       "missile-right": {
         accepts: [{ kind: "item", type: "missile" }],
-        contains: [{ kind: "item", id: "quiver" }],
-        ports: { left: { slot: "missile-left", side: "right" } }
+        contains: [{ kind: "item", type: "missile", id: "quiver" }],
+        ports: { left: { vessel: "missile-left", side: "right" } }
+      },
+      floating: {
+        accepts: [{ kind: "item", type: "floating" }],
+        contains: [{ kind: "item", type: "floating", id: "glowsphere" }]
+      },
+      thrown: {
+        accepts: [{ kind: "item", type: "thrown" }]
+      }
+    }
+  }
+};
+
+export const LEGACY_V1_DOCUMENT = {
+  protocol: "paper-doll/v1",
+  body: {
+    root: "body",
+    slots: {
+      body: {
+        accepts: [{ kind: "item", type: "body" }],
+        contains: [{ kind: "item", type: "body", id: "wet-recycling-suit" }],
+        ports: { top: { slot: "head", side: "bottom" } }
+      },
+      head: {
+        accepts: [{ kind: "item", type: "head" }],
+        ports: { bottom: { slot: "body", side: "top" } }
       }
     },
     pools: {
       floating: {
         accepts: [{ kind: "item", type: "floating" }],
-        contains: [{ kind: "item", id: "glowsphere" }]
-      },
-      thrown: {
-        accepts: [{ kind: "item", type: "thrown" }]
+        contains: [{ kind: "item", type: "floating", id: "glowsphere" }]
       }
     }
   }

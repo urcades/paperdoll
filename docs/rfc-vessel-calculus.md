@@ -1,6 +1,6 @@
 # RFC: A Vessel Calculus (paper-doll/v2)
 
-Status: draft
+Status: implemented — step 1 shipped in 0.5.0, step 2 (paper-doll/v2) shipped in 0.6.0
 Follows: `rfc-containment-and-constraints.md`, `core-ontology.md`
 
 ## Summary

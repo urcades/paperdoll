@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/urcades/paperdoll/main/schema/paper-doll-v2.schema.json",
+  "title": "paper-doll/v2 document",
+  "description": "A body-like arrangement of vessels. This schema captures the structural laws of paper-doll/v2: shape, ids, known keys, sides. Four laws require evaluation beyond schema and are specified in docs/rfc-vessel-calculus.md: reciprocity (every port is reciprocated by its target through opposite faces), planarity (derived figure coordinates are collision-free and consistent), reachability (every ported vessel is reachable from the root), and compatibility (in a vessel that declares accepts, every contained element matches at least one accept token; absent accepts is open, empty accepts is sealed). These laws apply recursively to every embedded body.",
+  "type": "object",
+  "required": ["protocol", "body"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": { "const": "paper-doll/v2" },
+    "body": { "$ref": "#/$defs/body" }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "side": {
+      "enum": ["top", "right", "bottom", "left"]
+    },
+    "portAddress": {
+      "type": "object",
+      "required": ["vessel", "side"],
+      "additionalProperties": false,
+      "properties": {
+        "vessel": { "$ref": "#/$defs/id" },
+        "side": { "$ref": "#/$defs/side" }
+      }
+    },
+    "acceptToken": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/id" },
+        "type": { "$ref": "#/$defs/id" }
+      }
+    },
+    "containedElement": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/id" },
+        "type": { "$ref": "#/$defs/id" },
+        "id": { "type": "string" },
+        "data": true,
+        "body": { "$ref": "#/$defs/body" }
+      }
+    },
+    "vessel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accepts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/acceptToken" }
+        },
+        "contains": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/containedElement" }
+        },
+        "ports": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "top": { "$ref": "#/$defs/portAddress" },
+            "right": { "$ref": "#/$defs/portAddress" },
+            "bottom": { "$ref": "#/$defs/portAddress" },
+            "left": { "$ref": "#/$defs/portAddress" }
+          }
+        }
+      }
+    },
+    "body": {
+      "type": "object",
+      "required": ["root", "vessels"],
+      "additionalProperties": false,
+      "properties": {
+        "root": { "$ref": "#/$defs/id" },
+        "vessels": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+          "additionalProperties": { "$ref": "#/$defs/vessel" }
+        }
+      }
+    }
+  }
+}

@@ -1,20 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   connect,
-  deletePool,
-  deleteSlot,
+  deleteVessel,
   deriveLayout,
   insertElement,
-  insertPool,
-  insertSlot,
+  insertVessel,
   isAccepted,
   matches,
+  migrateV1,
   moveElement,
   parseDocument,
   removeElement,
   type PaperDollDocument
 } from "../src/protocol";
-import { DEFAULT_DOCUMENT } from "./sample-document";
+import { DEFAULT_DOCUMENT, LEGACY_V1_DOCUMENT } from "./sample-document";
 
 function cloneDocument(overrides: Partial<PaperDollDocument> = {}): PaperDollDocument {
   return {
@@ -27,41 +26,28 @@ function errorMessages(result: ReturnType<typeof parseDocument>): string {
   return result.ok ? "" : result.errors.map((error) => error.message).join("\n");
 }
 
-describe("paper doll protocol", () => {
-  it("accepts the v1 sample document", () => {
+describe("paper doll protocol v2", () => {
+  it("accepts the v2 sample document", () => {
     const parsed = parseDocument(DEFAULT_DOCUMENT);
+    expect(errorMessages(parsed)).toBe("");
     expect(parsed.ok).toBe(true);
   });
 
-  it("derives coordinates from the rooted body graph and body-level pools", () => {
-    const layout = deriveLayout(DEFAULT_DOCUMENT);
+  it("derives figure coordinates and sorted free vessels", () => {
+    const layout = deriveLayout(DEFAULT_DOCUMENT.body);
 
-    expect(layout.slots.body).toEqual({ x: 0, y: 0 });
-    expect(layout.slots.head).toEqual({ x: 0, y: -1 });
-    expect(layout.slots.face).toEqual({ x: 0, y: -2 });
-    expect(layout.slots["left-arm"]).toEqual({ x: -1, y: 0 });
-    expect(layout.slots.feet).toEqual({ x: 0, y: 2 });
-    expect(layout.pools.floating).toEqual({ x: -5, y: -2 });
-    expect(layout.pools.thrown).toEqual({ x: -5, y: -1 });
-  });
-
-  it("derives pool positions in sorted pool-id order", () => {
-    const document = cloneDocument();
-    document.body.pools.aura = {};
-
-    const layout = deriveLayout(document);
-    expect(layout.pools.aura).toEqual({ x: -5, y: -2 });
-    expect(layout.pools.floating).toEqual({ x: -5, y: -1 });
-    expect(layout.pools.thrown).toEqual({ x: -5, y: 0 });
-    expect(layout.nodes.find((node) => node.id === "floating")).toMatchObject({
-      kind: "pool",
-      contains: [{ kind: "item", id: "glowsphere" }]
-    });
+    expect(layout.figure.body).toEqual({ x: 0, y: 0 });
+    expect(layout.figure.head).toEqual({ x: 0, y: -1 });
+    expect(layout.figure.face).toEqual({ x: 0, y: -2 });
+    expect(layout.figure["left-arm"]).toEqual({ x: -1, y: 0 });
+    expect(layout.figure.feet).toEqual({ x: 0, y: 2 });
+    expect(layout.figure.floating).toBeUndefined();
+    expect(layout.free).toEqual(["floating", "thrown"]);
   });
 
   it("rejects one-way ports", () => {
     const document = cloneDocument();
-    delete document.body.slots.head.ports?.top;
+    delete document.body.vessels.head.ports?.top;
 
     const parsed = parseDocument(document);
     expect(parsed.ok).toBe(false);
@@ -70,7 +56,7 @@ describe("paper doll protocol", () => {
 
   it("rejects non-opposite ports", () => {
     const document = cloneDocument();
-    document.body.slots.body.ports!.top = { slot: "head", side: "left" };
+    document.body.vessels.body.ports!.top = { vessel: "head", side: "left" };
 
     const parsed = parseDocument(document);
     expect(parsed.ok).toBe(false);
@@ -79,33 +65,32 @@ describe("paper doll protocol", () => {
 
   it("rejects rooted layout collisions", () => {
     const document: PaperDollDocument = {
-      protocol: "paper-doll/v1",
+      protocol: "paper-doll/v2",
       body: {
         root: "body",
-        pools: {},
-        slots: {
+        vessels: {
           body: {
             ports: {
-              top: { slot: "head", side: "bottom" },
-              right: { slot: "arm", side: "left" }
+              top: { vessel: "head", side: "bottom" },
+              right: { vessel: "arm", side: "left" }
             }
           },
           head: {
             ports: {
-              bottom: { slot: "body", side: "top" },
-              right: { slot: "hand", side: "left" }
+              bottom: { vessel: "body", side: "top" },
+              right: { vessel: "hand", side: "left" }
             }
           },
           arm: {
             ports: {
-              left: { slot: "body", side: "right" },
-              bottom: { slot: "hand", side: "top" }
+              left: { vessel: "body", side: "right" },
+              bottom: { vessel: "hand", side: "top" }
             }
           },
           hand: {
             ports: {
-              left: { slot: "head", side: "right" },
-              top: { slot: "arm", side: "bottom" }
+              left: { vessel: "head", side: "right" },
+              top: { vessel: "arm", side: "bottom" }
             }
           }
         }
@@ -117,112 +102,112 @@ describe("paper doll protocol", () => {
     expect(errorMessages(parsed)).toContain("already resolves");
   });
 
-  it("rejects unreachable physical body slots", () => {
+  it("allows free vessels but rejects unreachable ported vessels", () => {
     const document = cloneDocument();
-    document.body.slots.unreachable = {};
+    document.body.vessels.cargo = { accepts: [{ kind: "item", type: "cargo" }] };
+    expect(parseDocument(document).ok).toBe(true);
+
+    const stranded = cloneDocument();
+    stranded.body.vessels.orphan = { ports: { top: { vessel: "ghost", side: "bottom" } } };
+    const parsed = parseDocument(stranded);
+    expect(parsed.ok).toBe(false);
+    expect(errorMessages(parsed)).toContain('missing vessel "ghost"');
+  });
+
+  it("rejects a reciprocated island disconnected from the root", () => {
+    const document = cloneDocument();
+    document.body.vessels["island-a"] = { ports: { right: { vessel: "island-b", side: "left" } } };
+    document.body.vessels["island-b"] = { ports: { left: { vessel: "island-a", side: "right" } } };
 
     const parsed = parseDocument(document);
     expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("Use body.pools for non-graph containment");
+    expect(errorMessages(parsed)).toContain("Ported vessel is not reachable from root");
   });
 
-  it("allows multiple explicit body-level pools", () => {
+  it("rejects legacy v1 documents and points at migrateV1", () => {
+    const parsed = parseDocument(LEGACY_V1_DOCUMENT);
+    expect(parsed.ok).toBe(false);
+    expect(errorMessages(parsed)).toContain("migrateV1");
+    expect(errorMessages(parsed)).toContain("body.slots was removed");
+    expect(errorMessages(parsed)).toContain("body.pools was removed");
+  });
+
+  it("migrates v1 documents, merging slots and pools into vessels", () => {
+    const migrated = migrateV1(LEGACY_V1_DOCUMENT);
+    expect(migrated.ok).toBe(true);
+    if (!migrated.ok) return;
+
+    const { body } = migrated.value;
+    expect(migrated.value.protocol).toBe("paper-doll/v2");
+    expect(Object.keys(body.vessels).sort()).toEqual(["body", "floating", "head"]);
+    expect(body.vessels.body.ports?.top).toEqual({ vessel: "head", side: "bottom" });
+    expect(body.vessels.floating.contains).toEqual([{ kind: "item", type: "floating", id: "glowsphere" }]);
+    expect(deriveLayout(body).free).toEqual(["floating"]);
+  });
+
+  it("migrateV1 reports slot/pool id collisions", () => {
+    const legacy = structuredClone(LEGACY_V1_DOCUMENT);
+    legacy.body.pools = { ...legacy.body.pools, head: {} } as typeof legacy.body.pools;
+
+    const migrated = migrateV1(legacy);
+    expect(migrated.ok).toBe(false);
+    if (migrated.ok) return;
+    expect(migrated.errors[0].message).toContain("collides with a slot id");
+  });
+
+  it("enforces the compatibility law in validation", () => {
     const document = cloneDocument();
-    document.body.pools.aura = { accepts: [{ kind: "effect", type: "aura" }] };
-    document.body.pools.cargo = { accepts: [{ kind: "item", type: "cargo" }] };
+    document.body.vessels.head.contains = [{ kind: "item", type: "boot", id: "wader" }];
 
     const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(true);
+    expect(parsed.ok).toBe(false);
+    expect(errorMessages(parsed)).toContain('Element "item/boot" does not match any accept token');
   });
 
-  it("confirms pools are edge-less and not graph-reachable", () => {
+  it("treats absent accepts as open and empty accepts as sealed", () => {
+    expect(isAccepted({}, { kind: "item" })).toBe(true);
+    expect(isAccepted({ accepts: [] }, { kind: "item" })).toBe(false);
+    expect(matches({ kind: "item" }, { kind: "item", type: "hat" })).toBe(true);
+    expect(matches({ kind: "item", type: "hat" }, { kind: "item" })).toBe(false);
+
+    const sealed = cloneDocument();
+    sealed.body.vessels.thrown.accepts = [];
+    expect(parseDocument(sealed).ok).toBe(true);
+
+    sealed.body.vessels.thrown.contains = [{ kind: "item", type: "thrown" }];
+    expect(errorMessages(parseDocument(sealed))).toContain("does not match any accept token");
+  });
+
+  it("validates embedded bodies recursively", () => {
     const document = cloneDocument();
-    document.body.pools.aura = {
-      accepts: [{ kind: "effect", type: "aura" }],
-      contains: [{ kind: "effect", id: "static-field" }]
+    const pack = document.body.vessels.back.contains![0];
+    expect(pack.body).toBeDefined();
+
+    const broken = cloneDocument();
+    const brokenPack = broken.body.vessels.back.contains![0] as { body: { vessels: Record<string, unknown> } };
+    brokenPack.body.vessels["main-pocket"] = {
+      ...(brokenPack.body.vessels["main-pocket"] as object),
+      contains: [{ kind: "Item" }]
     };
 
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(true);
-    expect(deriveLayout(document).pools.aura).toEqual({ x: -5, y: -2 });
+    const parsed = parseDocument(broken);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.errors[0].path).toContain(".contains.0.body.vessels.main-pocket");
   });
 
-  it("rejects legacy zones", () => {
-    const document = structuredClone(DEFAULT_DOCUMENT) as unknown as Record<string, unknown>;
-    const body = document.body as Record<string, unknown>;
-    body.zones = { floating: {} };
+  it("rejects unknown keys at every level", () => {
+    const document = cloneDocument() as unknown as Record<string, any>;
+    document.icon = "sparkles";
+    document.body.view = "front";
+    document.body.vessels.body.label = "Torso";
 
     const parsed = parseDocument(document);
     expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("body.zones was removed");
-  });
-
-  it("rejects legacy equipped", () => {
-    const document = structuredClone(DEFAULT_DOCUMENT) as unknown as Record<string, unknown>;
-    const body = document.body as Record<string, unknown>;
-    body.equipped = { body: "Wet recycling suit" };
-
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("body.equipped was removed");
-  });
-
-  it("rejects missing pools", () => {
-    const document = structuredClone(DEFAULT_DOCUMENT) as unknown as Record<string, unknown>;
-    const body = document.body as Record<string, unknown>;
-    delete body.pools;
-
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("Pools must be an object");
-  });
-
-  it("rejects string accepts", () => {
-    const document = structuredClone(DEFAULT_DOCUMENT) as unknown as Record<string, unknown>;
-    const body = document.body as { slots: Record<string, unknown> };
-    body.slots.body = { accepts: ["body"] };
-
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("Accept token must be an object");
-  });
-
-  it("rejects invalid accept token kind and type", () => {
-    const document = cloneDocument();
-    document.body.slots.body.accepts = [{ kind: "Item", type: "wet_suit" }];
-
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("Accept token kind must be a lowercase id");
-    expect(errorMessages(parsed)).toContain("Accept token type must be a lowercase id");
-  });
-
-  it("rejects invalid contained element kind", () => {
-    const document = cloneDocument();
-    document.body.slots.body.contains = [{ kind: "Item", id: "wet-recycling-suit" }];
-
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("Contained element kind must be a lowercase id");
-  });
-
-  it("rejects non-JSON-compatible contained element data", () => {
-    const document = cloneDocument();
-    document.body.slots.body.contains = [{ kind: "state", data: Number.NaN }];
-
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("Contained element data must be JSON-compatible");
-  });
-
-  it("rejects pools with ports", () => {
-    const document = cloneDocument() as unknown as Record<string, unknown>;
-    const body = document.body as { pools: Record<string, unknown> };
-    body.pools.aura = { ports: { top: { slot: "body", side: "bottom" } } };
-
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("Pools are edge-less");
+    const messages = errorMessages(parsed);
+    expect(messages).toContain('Unknown key "icon"');
+    expect(messages).toContain('Unknown key "view"');
+    expect(messages).toContain('Unknown key "label"');
   });
 
   it("parseDocument returns a defensive copy of the input", () => {
@@ -231,231 +216,131 @@ describe("paper doll protocol", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
 
-    input.body.slots.body.contains = [{ kind: "item", id: "mutated" }];
-    expect(parsed.value.body.slots.body.contains).toEqual([{ kind: "item", id: "wet-recycling-suit" }]);
+    input.body.vessels.body.contains = [{ kind: "item", type: "body", id: "mutated" }];
+    expect(parsed.value.body.vessels.body.contains).toEqual([
+      { kind: "item", type: "body", id: "wet-recycling-suit" }
+    ]);
   });
 
-  it("rejects unknown keys at document, body, slot, and pool level", () => {
-    const document = cloneDocument() as unknown as Record<string, any>;
-    document.icon = "sparkles";
-    document.body.view = "front";
-    document.body.slots.body.label = "Torso";
-    document.body.pools.floating.color = "blue";
+  it("connects immutably and rejects invalid connections", () => {
+    const body = {
+      root: "body",
+      vessels: { body: {}, head: {} }
+    };
+    const before = structuredClone(body);
+    const connected = connect(body, { vessel: "body", side: "top" }, { vessel: "head", side: "bottom" });
 
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    const messages = errorMessages(parsed);
-    expect(messages).toContain('Unknown key "icon"');
-    expect(messages).toContain('Unknown key "view"');
-    expect(messages).toContain('Unknown key "label"');
-    expect(messages).toContain('Unknown key "color"');
-  });
+    expect(body).toEqual(before);
+    expect(connected.vessels.body.ports?.top).toEqual({ vessel: "head", side: "bottom" });
+    expect(connected.vessels.head.ports?.bottom).toEqual({ vessel: "body", side: "top" });
 
-  it("connect rejects non-opposite faces", () => {
-    const body = { root: "body", pools: {}, slots: { body: {}, head: {} } };
-    expect(() => connect(body, { slot: "body", side: "top" }, { slot: "head", side: "left" })).toThrow(
+    expect(() => connect(body, { vessel: "body", side: "top" }, { vessel: "head", side: "left" })).toThrow(
       "face-opposite"
     );
-  });
-
-  it("connect rejects self-connections", () => {
-    const body = { root: "body", pools: {}, slots: { body: {} } };
-    expect(() => connect(body, { slot: "body", side: "top" }, { slot: "body", side: "bottom" })).toThrow(
+    expect(() => connect(body, { vessel: "body", side: "top" }, { vessel: "body", side: "bottom" })).toThrow(
       "to itself"
     );
   });
 
-  it("insertSlot and insertPool accept explicit ids and reject taken or invalid ids", () => {
-    const withSlot = insertSlot(DEFAULT_DOCUMENT.body, { slot: "body", side: "right" }, {}, { id: "elbow" });
-    expect(withSlot.slotId).toBe("elbow");
-    expect(withSlot.body.slots.elbow).toBeDefined();
-
-    const withPool = insertPool(DEFAULT_DOCUMENT.body, {}, { id: "cargo" });
-    expect(withPool.poolId).toBe("cargo");
-
-    expect(() => insertSlot(DEFAULT_DOCUMENT.body, { slot: "body", side: "right" }, {}, { id: "head" })).toThrow(
-      "already used"
-    );
-    expect(() => insertPool(DEFAULT_DOCUMENT.body, {}, { id: "Bad_Id" })).toThrow("lowercase");
-  });
-
-  it("connects immutably", () => {
-    const body = {
-      root: "body",
-      pools: {},
-      slots: {
-        body: {},
-        head: {}
-      }
-    };
-    const before = structuredClone(body);
-    const connected = connect(body, { slot: "body", side: "top" }, { slot: "head", side: "bottom" });
-
-    expect(body).toEqual(before);
-    expect(connected.slots.body.ports?.top).toEqual({ slot: "head", side: "bottom" });
-    expect(connected.slots.head.ports?.bottom).toEqual({ slot: "body", side: "top" });
-  });
-
-  it("insertSlot bridges an occupied connection and preserves containment immutably", () => {
+  it("insertVessel with an endpoint bridges an occupied connection", () => {
     const bodyBefore = structuredClone(DEFAULT_DOCUMENT.body);
-    const result = insertSlot(DEFAULT_DOCUMENT.body, { slot: "body", side: "right" }, {
-      accepts: [{ kind: "item", type: "arm" }],
-      contains: [{ kind: "module", id: "prosthetic-joint", data: { quality: 2 } }]
-    });
-
-    expect(DEFAULT_DOCUMENT.body).toEqual(bodyBefore);
-    expect(result.slotId).toBe("slot-1");
-    expect(result.body.slots.body.ports?.right).toEqual({ slot: "slot-1", side: "left" });
-    expect(result.body.slots["slot-1"].ports?.left).toEqual({ slot: "body", side: "right" });
-    expect(result.body.slots["slot-1"].ports?.right).toEqual({ slot: "right-arm", side: "left" });
-    expect(result.body.slots["right-arm"].ports?.left).toEqual({ slot: "slot-1", side: "right" });
-    expect(result.body.slots["slot-1"].accepts).toEqual([{ kind: "item", type: "arm" }]);
-    expect(result.body.slots["slot-1"].contains).toEqual([
-      { kind: "module", id: "prosthetic-joint", data: { quality: 2 } }
-    ]);
-  });
-
-  it("insertPool creates an explicit body-level pool immutably", () => {
-    const bodyBefore = structuredClone(DEFAULT_DOCUMENT.body);
-    const result = insertPool(DEFAULT_DOCUMENT.body, {
-      accepts: [{ kind: "effect", type: "aura" }],
-      contains: [{ kind: "effect", id: "static-field" }]
-    });
-
-    expect(DEFAULT_DOCUMENT.body).toEqual(bodyBefore);
-    expect(result.poolId).toBe("pool-1");
-    expect(result.body.pools["pool-1"]).toEqual({
-      accepts: [{ kind: "effect", type: "aura" }],
-      contains: [{ kind: "effect", id: "static-field" }]
-    });
-  });
-
-  it("deletePool removes a pool immutably", () => {
-    const body = structuredClone(DEFAULT_DOCUMENT.body);
-    const next = deletePool(body, "floating");
-
-    expect(body.pools.floating).toBeDefined();
-    expect(next.pools.floating).toBeUndefined();
-    expect(parseDocument({ ...DEFAULT_DOCUMENT, body: next }).ok).toBe(true);
-  });
-
-  it("deleteSlot collapses opposite neighbors through the deleted slot and leaves pools untouched", () => {
-    const inserted = insertSlot(DEFAULT_DOCUMENT.body, { slot: "body", side: "right" }, {
-      contains: [{ kind: "module", id: "temporary-joint" }]
-    });
-    const next = deleteSlot(inserted.body, inserted.slotId, { collapseOppositeNeighbors: true });
-
-    expect(next.slots[inserted.slotId]).toBeUndefined();
-    expect(next.slots.body.ports?.right).toEqual({ slot: "right-arm", side: "left" });
-    expect(next.slots["right-arm"].ports?.left).toEqual({ slot: "body", side: "right" });
-    expect(next.pools).toEqual(DEFAULT_DOCUMENT.body.pools);
-    expect(parseDocument({ ...DEFAULT_DOCUMENT, body: next }).ok).toBe(true);
-  });
-
-  it("deleteSlot refuses to delete the root slot", () => {
-    expect(() => deleteSlot(DEFAULT_DOCUMENT.body, "body")).toThrow("Cannot delete root slot");
-  });
-
-  it("matches compares kind and optionally type", () => {
-    expect(matches({ kind: "item" }, { kind: "item", type: "hat" })).toBe(true);
-    expect(matches({ kind: "item", type: "hat" }, { kind: "item", type: "hat" })).toBe(true);
-    expect(matches({ kind: "item", type: "hat" }, { kind: "item", type: "sword" })).toBe(false);
-    expect(matches({ kind: "item", type: "hat" }, { kind: "item" })).toBe(false);
-    expect(matches({ kind: "effect" }, { kind: "item" })).toBe(false);
-  });
-
-  it("isAccepted treats absent accepts as open and empty accepts as sealed", () => {
-    expect(isAccepted({}, { kind: "item" })).toBe(true);
-    expect(isAccepted({ accepts: [] }, { kind: "item" })).toBe(false);
-    expect(isAccepted({ accepts: [{ kind: "item", type: "hat" }] }, { kind: "item", type: "hat" })).toBe(true);
-    expect(isAccepted({ accepts: [{ kind: "item", type: "hat" }] }, { kind: "item", type: "boot" })).toBe(false);
-  });
-
-  it("accepts contained elements with a type field", () => {
-    const document = cloneDocument();
-    document.body.slots.head.contains = [{ kind: "item", type: "hat", id: "straw-hat" }];
-
-    expect(parseDocument(document).ok).toBe(true);
-  });
-
-  it("rejects invalid contained element type", () => {
-    const document = cloneDocument();
-    document.body.slots.head.contains = [{ kind: "item", type: "Straw_Hat" }];
-
-    const parsed = parseDocument(document);
-    expect(parsed.ok).toBe(false);
-    expect(errorMessages(parsed)).toContain("Contained element type must be a lowercase id");
-  });
-
-  it("insertElement appends to slots and pools immutably", () => {
-    const before = structuredClone(DEFAULT_DOCUMENT.body);
-    const next = insertElement(DEFAULT_DOCUMENT.body, { slot: "head" }, { kind: "item", type: "head", id: "hood" });
-    const pooled = insertElement(next, { pool: "thrown" }, { kind: "item", type: "thrown", id: "javelin" });
-
-    expect(DEFAULT_DOCUMENT.body).toEqual(before);
-    expect(next.slots.head.contains).toEqual([
-      { kind: "item", id: "salve-hood" },
-      { kind: "item", type: "head", id: "hood" }
-    ]);
-    expect(pooled.pools.thrown.contains).toEqual([{ kind: "item", type: "thrown", id: "javelin" }]);
-  });
-
-  it("insertElement enforces compatibility when asked", () => {
-    expect(() =>
-      insertElement(DEFAULT_DOCUMENT.body, { slot: "head" }, { kind: "item", type: "boot" }, { checkCompatibility: true })
-    ).toThrow('Element "item/boot" is not accepted by slot "head"');
-
-    const ok = insertElement(
+    const result = insertVessel(
       DEFAULT_DOCUMENT.body,
-      { slot: "head" },
-      { kind: "item", type: "head" },
-      { checkCompatibility: true }
+      { accepts: [{ kind: "item", type: "arm" }] },
+      { at: { vessel: "body", side: "right" }, id: "elbow" }
     );
-    expect(ok.slots.head.contains).toHaveLength(2);
+
+    expect(DEFAULT_DOCUMENT.body).toEqual(bodyBefore);
+    expect(result.vesselId).toBe("elbow");
+    expect(result.body.vessels.body.ports?.right).toEqual({ vessel: "elbow", side: "left" });
+    expect(result.body.vessels.elbow.ports?.left).toEqual({ vessel: "body", side: "right" });
+    expect(result.body.vessels.elbow.ports?.right).toEqual({ vessel: "right-arm", side: "left" });
+    expect(result.body.vessels["right-arm"].ports?.left).toEqual({ vessel: "elbow", side: "right" });
+    expect(parseDocument({ ...DEFAULT_DOCUMENT, body: result.body }).ok).toBe(true);
   });
 
-  it("insertElement validates the element envelope and target", () => {
-    expect(() => insertElement(DEFAULT_DOCUMENT.body, { slot: "head" }, { kind: "Not An Id" })).toThrow("lowercase id");
-    expect(() => insertElement(DEFAULT_DOCUMENT.body, { slot: "ghost" }, { kind: "item" })).toThrow(
-      'missing slot "ghost"'
-    );
-    expect(() => insertElement(DEFAULT_DOCUMENT.body, { pool: "ghost" }, { kind: "item" })).toThrow(
-      'missing pool "ghost"'
-    );
+  it("insertVessel without an endpoint creates a free vessel that stays open by default", () => {
+    const result = insertVessel(DEFAULT_DOCUMENT.body, { contains: [{ kind: "effect", id: "static-field" }] });
+
+    expect(result.vesselId).toBe("vessel-1");
+    expect(result.body.vessels["vessel-1"].accepts).toBeUndefined();
+    expect(deriveLayout(result.body).free).toContain("vessel-1");
+    expect(parseDocument({ ...DEFAULT_DOCUMENT, body: result.body }).ok).toBe(true);
   });
 
-  it("removeElement returns the removed element and a new body", () => {
+  it("insertVessel rejects taken or invalid ids", () => {
+    expect(() => insertVessel(DEFAULT_DOCUMENT.body, {}, { id: "head" })).toThrow("already used");
+    expect(() => insertVessel(DEFAULT_DOCUMENT.body, {}, { id: "Bad_Id" })).toThrow("lowercase");
+  });
+
+  it("deleteVessel collapses opposite neighbors and refuses the root", () => {
+    const inserted = insertVessel(DEFAULT_DOCUMENT.body, {}, { at: { vessel: "body", side: "right" } });
+    const next = deleteVessel(inserted.body, inserted.vesselId, { collapseOppositeNeighbors: true });
+
+    expect(next.vessels[inserted.vesselId]).toBeUndefined();
+    expect(next.vessels.body.ports?.right).toEqual({ vessel: "right-arm", side: "left" });
+    expect(next.vessels["right-arm"].ports?.left).toEqual({ vessel: "body", side: "right" });
+    expect(parseDocument({ ...DEFAULT_DOCUMENT, body: next }).ok).toBe(true);
+
+    expect(() => deleteVessel(DEFAULT_DOCUMENT.body, "body")).toThrow("Cannot delete root vessel");
+  });
+
+  it("deleteVessel removes free vessels", () => {
+    const next = deleteVessel(DEFAULT_DOCUMENT.body, "floating");
+    expect(next.vessels.floating).toBeUndefined();
+    expect(parseDocument({ ...DEFAULT_DOCUMENT, body: next }).ok).toBe(true);
+  });
+
+  it("insertElement always enforces acceptance", () => {
     const before = structuredClone(DEFAULT_DOCUMENT.body);
-    const { body: next, element } = removeElement(DEFAULT_DOCUMENT.body, { slot: "left-hand" }, 0);
+    const next = insertElement(DEFAULT_DOCUMENT.body, "head", { kind: "item", type: "head", id: "hood" });
 
     expect(DEFAULT_DOCUMENT.body).toEqual(before);
-    expect(element).toEqual({ kind: "item", id: "steel-dagger" });
-    expect(next.slots["left-hand"].contains).toEqual([]);
-    expect(() => removeElement(next, { slot: "left-hand" }, 0)).toThrow("No element at index 0");
+    expect(next.vessels.head.contains).toHaveLength(2);
+
+    expect(() => insertElement(DEFAULT_DOCUMENT.body, "head", { kind: "item", type: "boot" })).toThrow(
+      'Element "item/boot" is not accepted by vessel "head"'
+    );
+    expect(() => insertElement(DEFAULT_DOCUMENT.body, "ghost", { kind: "item" })).toThrow(
+      'Vessel "ghost" does not exist'
+    );
+  });
+
+  it("insertElement validates embedded bodies", () => {
+    const nested = insertElement(DEFAULT_DOCUMENT.body, "left-hand", {
+      kind: "item",
+      type: "tool",
+      id: "toolbox",
+      body: { root: "tray", vessels: { tray: {} } }
+    });
+    expect(nested.vessels["left-hand"].contains).toHaveLength(2);
+
+    expect(() =>
+      insertElement(DEFAULT_DOCUMENT.body, "left-hand", {
+        kind: "item",
+        type: "tool",
+        body: { root: "ghost", vessels: {} }
+      })
+    ).toThrow('Root vessel "ghost" does not exist');
+  });
+
+  it("removeElement returns the removed element", () => {
+    const { body: next, element } = removeElement(DEFAULT_DOCUMENT.body, "left-hand", 0);
+
+    expect(element).toEqual({ kind: "item", type: "weapon", id: "steel-dagger" });
+    expect(next.vessels["left-hand"].contains).toEqual([]);
+    expect(() => removeElement(next, "left-hand", 0)).toThrow("No element at index 0");
   });
 
   it("moveElement is atomic and checks the destination before removing", () => {
-    const next = moveElement(DEFAULT_DOCUMENT.body, { slot: "left-hand" }, 0, { slot: "right-hand" });
-    expect(next.slots["left-hand"].contains).toEqual([]);
-    expect(next.slots["right-hand"].contains).toEqual([
-      { kind: "item", id: "torch" },
-      { kind: "item", id: "steel-dagger" }
+    const next = moveElement(DEFAULT_DOCUMENT.body, "left-hand", 0, "right-hand");
+    expect(next.vessels["left-hand"].contains).toEqual([]);
+    expect(next.vessels["right-hand"].contains).toEqual([
+      { kind: "item", type: "tool", id: "torch" },
+      { kind: "item", type: "weapon", id: "steel-dagger" }
     ]);
 
-    const sealed = structuredClone(DEFAULT_DOCUMENT.body);
-    sealed.slots.head.accepts = [];
-    expect(() =>
-      moveElement(sealed, { slot: "left-hand" }, 0, { slot: "head" }, { checkCompatibility: true })
-    ).toThrow("not accepted");
-    expect(sealed.slots["left-hand"].contains).toHaveLength(1);
-  });
-
-  it("moveElement supports moving within the same container", () => {
-    const stocked = insertElement(DEFAULT_DOCUMENT.body, { slot: "feet" }, { kind: "item", id: "sandals" });
-    const next = moveElement(stocked, { slot: "feet" }, 0, { slot: "feet" });
-    expect(next.slots.feet.contains).toEqual([
-      { kind: "item", id: "sandals" },
-      { kind: "item", id: "leather-moccasins" }
-    ]);
+    expect(() => moveElement(DEFAULT_DOCUMENT.body, "left-hand", 0, "head")).toThrow("not accepted");
+    expect(DEFAULT_DOCUMENT.body.vessels["left-hand"].contains).toHaveLength(1);
   });
 });

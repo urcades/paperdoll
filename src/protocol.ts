@@ -1,10 +1,11 @@
-export const PAPER_DOLL_PROTOCOL = "paper-doll/v1" as const;
+export const PAPER_DOLL_PROTOCOL = "paper-doll/v2" as const;
+
+const LEGACY_PROTOCOL = "paper-doll/v1";
 
 export const SIDES = ["top", "right", "bottom", "left"] as const;
 
 export type Side = (typeof SIDES)[number];
-export type SlotId = string;
-export type PoolId = string;
+export type VesselId = string;
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -25,42 +26,23 @@ export type ContainedElement = {
   type?: string;
   id?: string;
   data?: JsonValue;
+  body?: Body;
 };
 
 export type PortAddress = {
-  slot: SlotId;
+  vessel: VesselId;
   side: Side;
 };
 
-export type BodySlot = {
+export type Vessel = {
   accepts?: readonly AcceptToken[];
   contains?: readonly ContainedElement[];
   ports?: Partial<Record<Side, PortAddress>>;
 };
 
-export type Pool = {
-  accepts?: readonly AcceptToken[];
-  contains?: readonly ContainedElement[];
-};
-
 export type Body = {
-  root: SlotId;
-  slots: Record<SlotId, BodySlot>;
-  pools: Record<PoolId, Pool>;
-};
-
-export type DeleteSlotOptions = {
-  collapseOppositeNeighbors?: boolean;
-};
-
-export type InsertOptions = {
-  id?: string;
-};
-
-export type ContainmentTarget = { slot: SlotId } | { pool: PoolId };
-
-export type ContainmentOptions = {
-  checkCompatibility?: boolean;
+  root: VesselId;
+  vessels: Record<VesselId, Vessel>;
 };
 
 export type PaperDollDocument = {
@@ -69,7 +51,7 @@ export type PaperDollDocument = {
 };
 
 export type Endpoint = {
-  slot: SlotId;
+  vessel: VesselId;
   side: Side;
 };
 
@@ -83,20 +65,19 @@ export type DerivedPosition = {
   y: number;
 };
 
-export type DerivedNode = {
-  id: string;
-  kind: "slot" | "pool";
-  x: number;
-  y: number;
-  accepts?: readonly AcceptToken[];
-  contains?: readonly ContainedElement[];
+export type DerivedLayout = {
+  figure: Record<VesselId, DerivedPosition>;
+  free: VesselId[];
+  connections: Connection[];
 };
 
-export type DerivedLayout = {
-  nodes: DerivedNode[];
-  slots: Record<SlotId, DerivedPosition>;
-  pools: Record<PoolId, DerivedPosition>;
-  connections: Connection[];
+export type DeleteVesselOptions = {
+  collapseOppositeNeighbors?: boolean;
+};
+
+export type InsertVesselOptions = {
+  id?: VesselId;
+  at?: Endpoint;
 };
 
 const SIDE_SET = new Set<string>(SIDES);
@@ -115,6 +96,8 @@ const SIDE_VECTORS: Record<Side, DerivedPosition> = {
   bottom: { x: 0, y: 1 },
   left: { x: -1, y: 0 }
 };
+
+// Parsing and validation
 
 export function parseDocument(input: unknown): Result<PaperDollDocument, ProtocolError[]> {
   const errors = validateDocument(input);
@@ -141,34 +124,81 @@ export function validateDocument(input: unknown): ProtocolError[] {
     return [{ path: "$", message: "Document must be an object." }];
   }
 
-  if (input.protocol !== PAPER_DOLL_PROTOCOL) {
+  if (input.protocol === LEGACY_PROTOCOL) {
+    errors.push({ path: "$.protocol", message: `${LEGACY_PROTOCOL} documents must be migrated. Use migrateV1().` });
+  } else if (input.protocol !== PAPER_DOLL_PROTOCOL) {
     errors.push({ path: "$.protocol", message: `Expected "${PAPER_DOLL_PROTOCOL}".` });
   }
 
   validateKnownKeys(input, ["protocol", "body"], "$", errors);
   validateBody(input.body, "$.body", errors);
 
-  if (errors.length === 0) {
-    const layoutResult = deriveLayoutResult(input as PaperDollDocument);
-    if (!layoutResult.ok) errors.push(...layoutResult.errors);
-  }
-
   return errors;
 }
+
+export function migrateV1(input: unknown): Result<PaperDollDocument, ProtocolError[]> {
+  const errors: ProtocolError[] = [];
+
+  if (!isRecord(input)) {
+    return { ok: false, errors: [{ path: "$", message: "Document must be an object." }] };
+  }
+  if (input.protocol !== LEGACY_PROTOCOL) {
+    errors.push({ path: "$.protocol", message: `Expected "${LEGACY_PROTOCOL}".` });
+  }
+  const body = input.body;
+  if (!isRecord(body) || !isRecord(body.slots) || !isRecord(body.pools)) {
+    errors.push({ path: "$.body", message: "Body must be an object with slots and pools." });
+    return { ok: false, errors };
+  }
+
+  const vessels: Record<string, unknown> = {};
+  for (const [id, slot] of Object.entries(body.slots)) {
+    vessels[id] = migrateV1Vessel(slot);
+  }
+  for (const [id, pool] of Object.entries(body.pools)) {
+    if (vessels[id] !== undefined) {
+      errors.push({ path: `$.body.pools.${id}`, message: `Pool id "${id}" collides with a slot id; vessel ids share one namespace.` });
+      continue;
+    }
+    vessels[id] = migrateV1Vessel(pool);
+  }
+  if (errors.length > 0) return { ok: false, errors };
+
+  return parseDocument({
+    protocol: PAPER_DOLL_PROTOCOL,
+    body: { root: body.root, vessels }
+  });
+}
+
+function migrateV1Vessel(input: unknown): unknown {
+  if (!isRecord(input)) return input;
+  const { ports, ...rest } = input;
+  if (!isRecord(ports)) return rest;
+
+  const migratedPorts = Object.fromEntries(
+    Object.entries(ports).map(([side, port]) => [
+      side,
+      isRecord(port) ? { vessel: port.slot, side: port.side } : port
+    ])
+  );
+  return { ...rest, ports: migratedPorts };
+}
+
+// Derivation
 
 export function deriveConnections(body: Body): Connection[] {
   const connections: Connection[] = [];
   const seen = new Set<string>();
 
-  for (const [slotId, slot] of Object.entries(body.slots)) {
-    for (const [side, port] of typedEntries(slot.ports ?? {})) {
+  for (const [vesselId, vessel] of Object.entries(body.vessels)) {
+    for (const [side, port] of typedEntries(vessel.ports ?? {})) {
       if (!port) continue;
-      const key = canonicalConnectionKey({ slot: slotId, side }, port);
+      const key = canonicalConnectionKey({ vessel: vesselId, side }, { vessel: port.vessel, side: port.side });
       if (seen.has(key)) continue;
       seen.add(key);
       connections.push({
-        from: { slot: slotId, side },
-        to: { slot: port.slot, side: port.side }
+        from: { vessel: vesselId, side },
+        to: { vessel: port.vessel, side: port.side }
       });
     }
   }
@@ -176,17 +206,110 @@ export function deriveConnections(body: Body): Connection[] {
   return connections;
 }
 
-export function deriveLayout(document: PaperDollDocument): DerivedLayout {
-  const result = deriveLayoutResult(document);
+export function deriveLayout(body: Body): DerivedLayout {
+  const result = deriveLayoutResult(body, "$.body");
   if (!result.ok) throw new Error(formatProtocolErrors(result.errors));
   return result.value;
 }
 
+function deriveLayoutResult(body: Body, path: string): Result<DerivedLayout, ProtocolError[]> {
+  const errors: ProtocolError[] = [];
+  const figure: Record<VesselId, DerivedPosition> = {};
+  const occupied = new Map<string, VesselId>();
+  const queue: VesselId[] = [body.root];
+
+  figure[body.root] = { x: 0, y: 0 };
+  occupied.set(positionKey(figure[body.root]), body.root);
+
+  while (queue.length > 0) {
+    const vesselId = queue.shift();
+    if (!vesselId) continue;
+
+    const vessel = body.vessels[vesselId];
+    const sourcePosition = figure[vesselId];
+
+    for (const [side, target] of typedEntries(vessel.ports ?? {})) {
+      if (!target) continue;
+      const vector = SIDE_VECTORS[side];
+      const expected = {
+        x: sourcePosition.x + vector.x,
+        y: sourcePosition.y + vector.y
+      };
+      const existing = figure[target.vessel];
+
+      if (existing) {
+        if (existing.x !== expected.x || existing.y !== expected.y) {
+          errors.push({
+            path: `${path}.vessels.${vesselId}.ports.${side}`,
+            message: `Connection implies ${target.vessel} at ${expected.x},${expected.y}, but it already resolves to ${existing.x},${existing.y}.`
+          });
+        }
+        continue;
+      }
+
+      const key = positionKey(expected);
+      const collidingVessel = occupied.get(key);
+      if (collidingVessel) {
+        errors.push({
+          path: `${path}.vessels.${vesselId}.ports.${side}`,
+          message: `Layout collision: ${target.vessel} and ${collidingVessel} both resolve to ${key}.`
+        });
+        continue;
+      }
+
+      figure[target.vessel] = expected;
+      occupied.set(key, target.vessel);
+      queue.push(target.vessel);
+    }
+  }
+
+  const free: VesselId[] = [];
+  for (const [vesselId, vessel] of Object.entries(body.vessels)) {
+    if (figure[vesselId]) continue;
+    if (hasPorts(vessel)) {
+      errors.push({
+        path: `${path}.vessels.${vesselId}`,
+        message: `Ported vessel is not reachable from root "${body.root}". Free vessels must have no ports.`
+      });
+      continue;
+    }
+    free.push(vesselId);
+  }
+  free.sort();
+
+  if (errors.length > 0) return { ok: false, errors };
+
+  return {
+    ok: true,
+    value: {
+      figure,
+      free,
+      connections: deriveConnections(body)
+    }
+  };
+}
+
+// Compatibility
+
+export function matches(token: AcceptToken, element: ContainedElement): boolean {
+  return token.kind === element.kind && (token.type === undefined || token.type === element.type);
+}
+
+export function isAccepted(
+  container: { accepts?: readonly AcceptToken[] },
+  element: ContainedElement
+): boolean {
+  if (container.accepts === undefined) return true;
+  return container.accepts.some((token) => matches(token, element));
+}
+
+// Topology operations
+
 export function connect(body: Body, from: Endpoint, to: Endpoint): Body {
   assertEndpoint(body, from, "from");
   assertEndpoint(body, to, "to");
-  if (from.slot === to.slot) {
-    throw new Error(`Cannot connect slot "${from.slot}" to itself.`);
+  if (from.vessel === to.vessel) {
+    throw new Error(`Cannot connect vessel "${from.vessel}" to itself.`);
   }
   if (to.side !== OPPOSITE_SIDES[from.side]) {
     throw new Error(`Connections must be face-opposite; ${from.side} must connect to ${OPPOSITE_SIDES[from.side]}.`);
@@ -207,151 +330,51 @@ export function disconnect(body: Body, endpoint: Endpoint): Body {
   return next;
 }
 
-export function insertSlot(
+export function insertVessel(
   body: Body,
-  source: Endpoint,
-  slot: Omit<BodySlot, "ports"> = {},
-  options: InsertOptions = {}
-): { body: Body; slotId: SlotId } {
-  assertEndpoint(body, source, "source");
+  vessel: Omit<Vessel, "ports"> = {},
+  options: InsertVesselOptions = {}
+): { body: Body; vesselId: VesselId } {
+  const vesselId = options.id ?? nextVesselId(body);
+  assertAvailableId(body, vesselId);
 
-  const slotId = options.id ?? nextSlotId(body);
-  assertAvailableId(body, slotId);
-  const prior = body.slots[source.slot]?.ports?.[source.side];
   const base = cloneBody(body);
   let next: Body = {
     ...base,
-    slots: {
-      ...base.slots,
-      [slotId]: {
-        accepts: [],
-        contains: [],
-        ...cloneSlot(slot),
-        ports: {}
-      }
+    vessels: {
+      ...base.vessels,
+      [vesselId]: cloneVessel(vessel)
     }
   };
 
-  if (prior) {
-    next = connect(next, { slot: slotId, side: source.side }, prior);
+  if (options.at) {
+    const at = options.at;
+    assertEndpoint(body, at, "at");
+    const prior = body.vessels[at.vessel]?.ports?.[at.side];
+    if (prior) {
+      next = connect(next, { vessel: vesselId, side: at.side }, prior);
+    }
+    next = connect(next, at, { vessel: vesselId, side: OPPOSITE_SIDES[at.side] });
   }
 
-  next = connect(next, source, { slot: slotId, side: OPPOSITE_SIDES[source.side] });
-  return { body: next, slotId };
+  return { body: next, vesselId };
 }
 
-export function insertPool(body: Body, pool: Pool = {}, options: InsertOptions = {}): { body: Body; poolId: PoolId } {
-  const poolId = options.id ?? nextPoolId(body);
-  assertAvailableId(body, poolId);
-  const base = cloneBody(body);
-  return {
-    body: {
-      ...base,
-      pools: {
-        ...base.pools,
-        [poolId]: {
-          accepts: [],
-          contains: [],
-          ...clonePool(pool)
-        }
-      }
-    },
-    poolId
-  };
-}
-
-export function matches(token: AcceptToken, element: ContainedElement): boolean {
-  return token.kind === element.kind && (token.type === undefined || token.type === element.type);
-}
-
-export function isAccepted(
-  container: { accepts?: readonly AcceptToken[] },
-  element: ContainedElement
-): boolean {
-  if (container.accepts === undefined) return true;
-  return container.accepts.some((token) => matches(token, element));
-}
-
-export function insertElement(
-  body: Body,
-  target: ContainmentTarget,
-  element: ContainedElement,
-  options: ContainmentOptions = {}
-): Body {
-  assertElement(element);
-  assertCompatible(getContainer(body, target), element, target, options);
-
-  const next = cloneBody(body);
-  const container = getContainer(next, target);
-  container.contains = [...(container.contains ?? []), cloneElement(element)];
-  return next;
-}
-
-export function removeElement(
-  body: Body,
-  target: ContainmentTarget,
-  index: number
-): { body: Body; element: ContainedElement } {
-  const elements = getContainer(body, target).contains ?? [];
-  if (!Number.isInteger(index) || index < 0 || index >= elements.length) {
-    throw new Error(`No element at index ${index} in ${describeTarget(target)}.`);
-  }
-
-  const next = cloneBody(body);
-  const container = getContainer(next, target);
-  const remaining = [...(container.contains ?? [])];
-  const [removed] = remaining.splice(index, 1);
-  container.contains = remaining;
-  return { body: next, element: removed as ContainedElement };
-}
-
-export function moveElement(
-  body: Body,
-  from: ContainmentTarget,
-  index: number,
-  to: ContainmentTarget,
-  options: ContainmentOptions = {}
-): Body {
-  const elements = getContainer(body, from).contains ?? [];
-  const element = elements[index];
-  if (!Number.isInteger(index) || !element) {
-    throw new Error(`No element at index ${index} in ${describeTarget(from)}.`);
-  }
-  assertCompatible(getContainer(body, to), element, to, options);
-
-  const next = cloneBody(body);
-  const source = getContainer(next, from);
-  const remaining = [...(source.contains ?? [])];
-  const [moved] = remaining.splice(index, 1);
-  source.contains = remaining;
-  const destination = getContainer(next, to);
-  destination.contains = [...(destination.contains ?? []), moved as ContainedElement];
-  return next;
-}
-
-export function deletePool(body: Body, poolId: PoolId): Body {
-  if (!body.pools[poolId]) throw new Error(`Pool "${poolId}" does not exist.`);
-
-  const next = cloneBody(body);
-  delete next.pools[poolId];
-  return next;
-}
-
-export function deleteSlot(body: Body, slotId: SlotId, options: DeleteSlotOptions = {}): Body {
-  if (slotId === body.root) throw new Error(`Cannot delete root slot "${slotId}".`);
-  if (!body.slots[slotId]) throw new Error(`Slot "${slotId}" does not exist.`);
+export function deleteVessel(body: Body, vesselId: VesselId, options: DeleteVesselOptions = {}): Body {
+  if (vesselId === body.root) throw new Error(`Cannot delete root vessel "${vesselId}".`);
+  if (!body.vessels[vesselId]) throw new Error(`Vessel "${vesselId}" does not exist.`);
 
   const deletedConnections = deriveConnections(body)
-    .map((connection) => connectionThroughSlot(connection, slotId))
+    .map((connection) => connectionThroughVessel(connection, vesselId))
     .filter((connection): connection is { deleted: Endpoint; neighbor: Endpoint } => Boolean(connection));
   const next = cloneBody(body);
 
-  delete next.slots[slotId];
+  delete next.vessels[vesselId];
 
-  for (const slot of Object.values(next.slots)) {
+  for (const vessel of Object.values(next.vessels)) {
     for (const side of SIDES) {
-      if (slot.ports?.[side]?.slot === slotId) {
-        delete slot.ports[side];
+      if (vessel.ports?.[side]?.vessel === vesselId) {
+        delete vessel.ports[side];
       }
     }
   }
@@ -362,7 +385,7 @@ export function deleteSlot(body: Body, slotId: SlotId, options: DeleteSlotOption
     deletedConnections.length === 2 &&
     first &&
     second &&
-    first.neighbor.slot !== second.neighbor.slot &&
+    first.neighbor.vessel !== second.neighbor.vessel &&
     first.deleted.side === OPPOSITE_SIDES[second.deleted.side]
   ) {
     return connect(next, first.neighbor, second.neighbor);
@@ -371,93 +394,56 @@ export function deleteSlot(body: Body, slotId: SlotId, options: DeleteSlotOption
   return next;
 }
 
-function deriveLayoutResult(document: PaperDollDocument): Result<DerivedLayout, ProtocolError[]> {
-  const errors: ProtocolError[] = [];
-  const positions: Record<SlotId, DerivedPosition> = {};
-  const occupied = new Map<string, SlotId>();
-  const queue: SlotId[] = [document.body.root];
+// Containment operations
 
-  positions[document.body.root] = { x: 0, y: 0 };
-  occupied.set(positionKey(positions[document.body.root]), document.body.root);
+export function insertElement(body: Body, vesselId: VesselId, element: ContainedElement): Body {
+  const vessel = getVessel(body, vesselId);
+  assertElement(element);
+  assertAccepted(vessel, element, vesselId);
 
-  while (queue.length > 0) {
-    const slotId = queue.shift();
-    if (!slotId) continue;
-
-    const slot = document.body.slots[slotId];
-    const sourcePosition = positions[slotId];
-
-    for (const [side, target] of typedEntries(slot.ports ?? {})) {
-      if (!target) continue;
-      const vector = SIDE_VECTORS[side];
-      const expected = {
-        x: sourcePosition.x + vector.x,
-        y: sourcePosition.y + vector.y
-      };
-      const existing = positions[target.slot];
-
-      if (existing) {
-        if (existing.x !== expected.x || existing.y !== expected.y) {
-          errors.push({
-            path: `$.body.slots.${slotId}.ports.${side}`,
-            message: `Connection implies ${target.slot} at ${expected.x},${expected.y}, but it already resolves to ${existing.x},${existing.y}.`
-          });
-        }
-        continue;
-      }
-
-      const key = positionKey(expected);
-      const collidingSlot = occupied.get(key);
-      if (collidingSlot) {
-        errors.push({
-          path: `$.body.slots.${slotId}.ports.${side}`,
-          message: `Layout collision: ${target.slot} and ${collidingSlot} both resolve to ${key}.`
-        });
-        continue;
-      }
-
-      positions[target.slot] = expected;
-      occupied.set(key, target.slot);
-      queue.push(target.slot);
-    }
-  }
-
-  const unreachable = Object.keys(document.body.slots).filter((slotId) => !positions[slotId]);
-  for (const slotId of unreachable) {
-    errors.push({
-      path: `$.body.slots.${slotId}`,
-      message: `Physical slot is not reachable from root "${document.body.root}". Use body.pools for non-graph containment.`
-    });
-  }
-
-  if (errors.length > 0) return { ok: false, errors };
-
-  const poolPositions = derivePoolPositions(document.body.pools, positions);
-  return {
-    ok: true,
-    value: {
-      slots: positions,
-      pools: poolPositions,
-      connections: deriveConnections(document.body),
-      nodes: [
-        ...Object.entries(document.body.slots).map(([id, slot]) => ({
-          id,
-          kind: "slot" as const,
-          accepts: slot.accepts,
-          contains: slot.contains,
-          ...positions[id]
-        })),
-        ...Object.entries(document.body.pools).map(([id, pool]) => ({
-          id,
-          kind: "pool" as const,
-          accepts: pool.accepts,
-          contains: pool.contains,
-          ...poolPositions[id]
-        }))
-      ]
-    }
-  };
+  const next = cloneBody(body);
+  const container = next.vessels[vesselId];
+  container.contains = [...(container.contains ?? []), cloneElement(element)];
+  return next;
 }
+
+export function removeElement(
+  body: Body,
+  vesselId: VesselId,
+  index: number
+): { body: Body; element: ContainedElement } {
+  const elements = getVessel(body, vesselId).contains ?? [];
+  if (!Number.isInteger(index) || index < 0 || index >= elements.length) {
+    throw new Error(`No element at index ${index} in vessel "${vesselId}".`);
+  }
+
+  const next = cloneBody(body);
+  const container = next.vessels[vesselId];
+  const remaining = [...(container.contains ?? [])];
+  const [removed] = remaining.splice(index, 1);
+  container.contains = remaining;
+  return { body: next, element: removed as ContainedElement };
+}
+
+export function moveElement(body: Body, from: VesselId, index: number, to: VesselId): Body {
+  const elements = getVessel(body, from).contains ?? [];
+  const element = elements[index];
+  if (!Number.isInteger(index) || !element) {
+    throw new Error(`No element at index ${index} in vessel "${from}".`);
+  }
+  assertAccepted(getVessel(body, to), element, to);
+
+  const next = cloneBody(body);
+  const source = next.vessels[from];
+  const remaining = [...(source.contains ?? [])];
+  const [moved] = remaining.splice(index, 1);
+  source.contains = remaining;
+  const destination = next.vessels[to];
+  destination.contains = [...(destination.contains ?? []), moved as ContainedElement];
+  return next;
+}
+
+// Validation internals
 
 function validateBody(input: unknown, path: string, errors: ProtocolError[]): void {
   if (!isRecord(input)) {
@@ -465,59 +451,69 @@ function validateBody(input: unknown, path: string, errors: ProtocolError[]): vo
     return;
   }
 
-  if (input.zones !== undefined) {
-    errors.push({ path: `${path}.zones`, message: "body.zones was removed in paper-doll/v1. Use body.pools." });
+  if (input.slots !== undefined) {
+    errors.push({ path: `${path}.slots`, message: "body.slots was removed in paper-doll/v2. Use body.vessels (see migrateV1)." });
   }
-  if (input.equipped !== undefined) {
-    errors.push({ path: `${path}.equipped`, message: "body.equipped was removed in paper-doll/v1. Use slot.contains or pool.contains." });
+  if (input.pools !== undefined) {
+    errors.push({ path: `${path}.pools`, message: "body.pools was removed in paper-doll/v2. Use body.vessels (see migrateV1)." });
   }
 
-  validateKnownKeys(input, ["root", "slots", "pools", "zones", "equipped"], path, errors);
+  validateKnownKeys(input, ["root", "vessels", "slots", "pools"], path, errors);
 
   if (!isId(input.root)) {
-    errors.push({ path: `${path}.root`, message: "Root must be a valid slot id." });
+    errors.push({ path: `${path}.root`, message: "Root must be a valid vessel id." });
   }
 
-  if (!isRecord(input.slots)) {
-    errors.push({ path: `${path}.slots`, message: "Slots must be an object keyed by slot id." });
+  if (!isRecord(input.vessels)) {
+    errors.push({ path: `${path}.vessels`, message: "Vessels must be an object keyed by vessel id." });
     return;
   }
 
-  if (!isRecord(input.pools)) {
-    errors.push({ path: `${path}.pools`, message: "Pools must be an object keyed by pool id." });
+  if (isId(input.root) && !input.vessels[input.root]) {
+    errors.push({ path: `${path}.root`, message: `Root vessel "${input.root}" does not exist.` });
   }
 
-  if (isId(input.root) && !input.slots[input.root]) {
-    errors.push({ path: `${path}.root`, message: `Root slot "${input.root}" does not exist.` });
-  }
-
-  for (const [slotId, slot] of Object.entries(input.slots)) {
-    validateId(slotId, `${path}.slots.${slotId}`, errors);
-    validateSlot(slot, `${path}.slots.${slotId}`, errors);
-  }
-
-  if (isRecord(input.pools)) {
-    for (const [poolId, pool] of Object.entries(input.pools)) {
-      validateId(poolId, `${path}.pools.${poolId}`, errors);
-      validatePool(pool, `${path}.pools.${poolId}`, errors);
-    }
+  for (const [vesselId, vessel] of Object.entries(input.vessels)) {
+    validateId(vesselId, `${path}.vessels.${vesselId}`, errors);
+    validateVessel(vessel, `${path}.vessels.${vesselId}`, errors);
   }
 
   if (errors.length > 0) return;
 
   const body = input as unknown as Body;
   validatePorts(body, path, errors);
+
+  if (errors.length > 0) return;
+
+  const layoutResult = deriveLayoutResult(body, path);
+  if (!layoutResult.ok) errors.push(...layoutResult.errors);
 }
 
-function validateSlot(input: unknown, path: string, errors: ProtocolError[]): void {
+function validateVessel(input: unknown, path: string, errors: ProtocolError[]): void {
   if (!isRecord(input)) {
-    errors.push({ path, message: "Slot must be an object." });
+    errors.push({ path, message: "Vessel must be an object." });
     return;
   }
 
   validateKnownKeys(input, ["accepts", "contains", "ports"], path, errors);
+
+  const before = errors.length;
   validateAcceptTokens(input.accepts, `${path}.accepts`, errors);
   validateContainedElements(input.contains, `${path}.contains`, errors);
+  const structurallyValid = errors.length === before;
+
+  if (structurallyValid && input.accepts !== undefined) {
+    const vessel = input as Vessel;
+    (vessel.contains ?? []).forEach((element, index) => {
+      if (!isAccepted(vessel, element)) {
+        const label = element.type ? `${element.kind}/${element.type}` : element.kind;
+        errors.push({
+          path: `${path}.contains.${index}`,
+          message: `Element "${label}" does not match any accept token of this vessel.`
+        });
+      }
+    });
+  }
 
   if (input.ports === undefined) return;
   if (!isRecord(input.ports)) {
@@ -534,29 +530,14 @@ function validateSlot(input: unknown, path: string, errors: ProtocolError[]): vo
   }
 }
 
-function validatePool(input: unknown, path: string, errors: ProtocolError[]): void {
-  if (!isRecord(input)) {
-    errors.push({ path, message: "Pool must be an object." });
-    return;
-  }
-
-  if (input.ports !== undefined) {
-    errors.push({ path: `${path}.ports`, message: "Pools are edge-less and cannot have ports." });
-  }
-
-  validateKnownKeys(input, ["accepts", "contains", "ports"], path, errors);
-  validateAcceptTokens(input.accepts, `${path}.accepts`, errors);
-  validateContainedElements(input.contains, `${path}.contains`, errors);
-}
-
 function validatePorts(body: Body, path: string, errors: ProtocolError[]): void {
-  for (const [slotId, slot] of Object.entries(body.slots)) {
-    for (const [side, port] of typedEntries(slot.ports ?? {})) {
+  for (const [vesselId, vessel] of Object.entries(body.vessels)) {
+    for (const [side, port] of typedEntries(vessel.ports ?? {})) {
       if (!port) continue;
-      const portPath = `${path}.slots.${slotId}.ports.${side}`;
+      const portPath = `${path}.vessels.${vesselId}.ports.${side}`;
 
-      if (!body.slots[port.slot]) {
-        errors.push({ path: portPath, message: `References missing slot "${port.slot}".` });
+      if (!body.vessels[port.vessel]) {
+        errors.push({ path: portPath, message: `References missing vessel "${port.vessel}".` });
         continue;
       }
 
@@ -567,11 +548,11 @@ function validatePorts(body: Body, path: string, errors: ProtocolError[]): void 
         });
       }
 
-      const reciprocal = body.slots[port.slot]?.ports?.[port.side];
-      if (!reciprocal || reciprocal.slot !== slotId || reciprocal.side !== side) {
+      const reciprocal = body.vessels[port.vessel]?.ports?.[port.side];
+      if (!reciprocal || reciprocal.vessel !== vesselId || reciprocal.side !== side) {
         errors.push({
           path: portPath,
-          message: `Must be reciprocated by ${port.slot}.${port.side}.`
+          message: `Must be reciprocated by ${port.vessel}.${port.side}.`
         });
       }
     }
@@ -584,9 +565,9 @@ function validatePortAddress(input: unknown, path: string, errors: ProtocolError
     return;
   }
 
-  validateKnownKeys(input, ["slot", "side"], path, errors);
-  if (!isId(input.slot)) {
-    errors.push({ path: `${path}.slot`, message: "Port slot must be a valid slot id." });
+  validateKnownKeys(input, ["vessel", "side"], path, errors);
+  if (!isId(input.vessel)) {
+    errors.push({ path: `${path}.vessel`, message: "Port vessel must be a valid vessel id." });
   }
   if (!isSide(input.side)) {
     errors.push({ path: `${path}.side`, message: "Port side must be top, right, bottom, or left." });
@@ -634,7 +615,7 @@ function validateContainedElement(value: unknown, path: string, errors: Protocol
     return;
   }
 
-  validateKnownKeys(value, ["kind", "type", "id", "data"], path, errors);
+  validateKnownKeys(value, ["kind", "type", "id", "data", "body"], path, errors);
   if (!isId(value.kind)) {
     errors.push({ path: `${path}.kind`, message: "Contained element kind must be a lowercase id." });
   }
@@ -646,6 +627,9 @@ function validateContainedElement(value: unknown, path: string, errors: Protocol
   }
   if (value.data !== undefined && !isJsonValue(value.data)) {
     errors.push({ path: `${path}.data`, message: "Contained element data must be JSON-compatible." });
+  }
+  if (value.body !== undefined) {
+    validateBody(value.body, `${path}.body`, errors);
   }
 }
 
@@ -668,56 +652,125 @@ function validateId(value: string, path: string, errors: ProtocolError[]): void 
   }
 }
 
-function derivePoolPositions(
-  pools: Record<PoolId, Pool>,
-  slotPositions: Record<SlotId, DerivedPosition>
-): Record<PoolId, DerivedPosition> {
-  const slotValues = Object.values(slotPositions);
-  const minX = Math.min(...slotValues.map((position) => position.x));
-  const minY = Math.min(...slotValues.map((position) => position.y));
+// Operation internals
 
-  return Object.fromEntries(
-    Object.keys(pools).sort().map((poolId, index) => [
-      poolId,
-      {
-        x: minX - 2,
-        y: minY + index
-      }
-    ])
-  );
+function getVessel(body: Body, vesselId: VesselId): Vessel {
+  const vessel = body.vessels[vesselId];
+  if (!vessel) throw new Error(`Vessel "${vesselId}" does not exist.`);
+  return vessel;
 }
+
+function assertElement(element: ContainedElement): void {
+  if (!isId(element.kind)) {
+    throw new Error("Contained element kind must be a lowercase id.");
+  }
+  if (element.type !== undefined && !isId(element.type)) {
+    throw new Error("Contained element type must be a lowercase id.");
+  }
+  if (element.body !== undefined) {
+    const errors: ProtocolError[] = [];
+    validateBody(element.body, "$.element.body", errors);
+    if (errors.length > 0) {
+      throw new Error(formatProtocolErrors(errors));
+    }
+  }
+}
+
+function assertAccepted(vessel: Vessel, element: ContainedElement, vesselId: VesselId): void {
+  if (!isAccepted(vessel, element)) {
+    const label = element.type ? `${element.kind}/${element.type}` : element.kind;
+    throw new Error(`Element "${label}" is not accepted by vessel "${vesselId}".`);
+  }
+}
+
+function assertEndpoint(body: Body, endpoint: Endpoint, label: string): void {
+  if (!body.vessels[endpoint.vessel]) throw new Error(`${label} references missing vessel "${endpoint.vessel}".`);
+  if (!isSide(endpoint.side)) throw new Error(`${label} side must be top, right, bottom, or left.`);
+}
+
+function assertAvailableId(body: Body, id: string): void {
+  if (!isId(id)) {
+    throw new Error(`Id "${id}" must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens.`);
+  }
+  if (body.vessels[id]) {
+    throw new Error(`Id "${id}" is already used by an existing vessel.`);
+  }
+}
+
+function nextVesselId(body: Body): VesselId {
+  let index = 1;
+  while (body.vessels[`vessel-${index}`]) index += 1;
+  return `vessel-${index}`;
+}
+
+function hasPorts(vessel: Vessel): boolean {
+  return Object.values(vessel.ports ?? {}).some(Boolean);
+}
+
+function clearPort(body: Body, endpoint: Endpoint): void {
+  const current = body.vessels[endpoint.vessel].ports?.[endpoint.side];
+  if (!current) return;
+
+  delete body.vessels[endpoint.vessel].ports?.[endpoint.side];
+  const reciprocal = body.vessels[current.vessel]?.ports;
+  if (reciprocal?.[current.side]?.vessel === endpoint.vessel && reciprocal[current.side]?.side === endpoint.side) {
+    delete reciprocal[current.side];
+  }
+}
+
+function setPort(body: Body, from: Endpoint, to: Endpoint): void {
+  const vessel = body.vessels[from.vessel];
+  vessel.ports = vessel.ports ?? {};
+  vessel.ports[from.side] = { vessel: to.vessel, side: to.side };
+}
+
+function connectionThroughVessel(
+  connection: Connection,
+  vesselId: VesselId
+): { deleted: Endpoint; neighbor: Endpoint } | null {
+  if (connection.from.vessel === vesselId) {
+    return { deleted: connection.from, neighbor: connection.to };
+  }
+  if (connection.to.vessel === vesselId) {
+    return { deleted: connection.to, neighbor: connection.from };
+  }
+  return null;
+}
+
+function canonicalConnectionKey(a: Endpoint, b: Endpoint): string {
+  return [`${a.vessel}:${a.side}`, `${b.vessel}:${b.side}`].sort().join("|");
+}
+
+function positionKey(position: DerivedPosition): string {
+  return `${position.x},${position.y}`;
+}
+
+// Cloning
 
 function cloneBody(body: Body): Body {
   return {
     root: body.root,
-    slots: Object.fromEntries(Object.entries(body.slots).map(([id, slot]) => [id, cloneSlot(slot)])),
-    pools: Object.fromEntries(Object.entries(body.pools).map(([id, pool]) => [id, clonePool(pool)]))
+    vessels: Object.fromEntries(Object.entries(body.vessels).map(([id, vessel]) => [id, cloneVessel(vessel)]))
   };
 }
 
-function cloneSlot(slot: BodySlot): BodySlot {
-  return {
-    ...slot,
-    accepts: cloneAcceptTokens(slot.accepts),
-    contains: cloneContainedElements(slot.contains),
-    ports: slot.ports ? Object.fromEntries(typedEntries(slot.ports).map(([side, port]) => [side, port ? { ...port } : undefined])) : undefined
-  };
+function cloneVessel(vessel: Vessel): Vessel {
+  const next: Vessel = { ...vessel };
+  if (vessel.accepts) next.accepts = vessel.accepts.map((token) => ({ ...token }));
+  if (vessel.contains) next.contains = vessel.contains.map(cloneElement);
+  if (vessel.ports) {
+    next.ports = Object.fromEntries(
+      typedEntries(vessel.ports).map(([side, port]) => [side, port ? { ...port } : undefined])
+    );
+  }
+  return next;
 }
 
-function clonePool(pool: Pool): Pool {
-  return {
-    ...pool,
-    accepts: cloneAcceptTokens(pool.accepts),
-    contains: cloneContainedElements(pool.contains)
-  };
-}
-
-function cloneAcceptTokens(tokens: readonly AcceptToken[] | undefined): AcceptToken[] | undefined {
-  return tokens ? tokens.map((token) => ({ ...token })) : undefined;
-}
-
-function cloneContainedElements(elements: readonly ContainedElement[] | undefined): ContainedElement[] | undefined {
-  return elements ? elements.map(cloneElement) : undefined;
+function cloneElement(element: ContainedElement): ContainedElement {
+  const next: ContainedElement = { ...element };
+  if (element.data !== undefined) next.data = cloneJsonValue(element.data);
+  if (element.body !== undefined) next.body = cloneBody(element.body);
+  return next;
 }
 
 function cloneJsonValue(value: JsonValue | undefined): JsonValue | undefined {
@@ -728,110 +781,7 @@ function cloneJsonValue(value: JsonValue | undefined): JsonValue | undefined {
   return value;
 }
 
-function clearPort(body: Body, endpoint: Endpoint): void {
-  const current = body.slots[endpoint.slot].ports?.[endpoint.side];
-  if (!current) return;
-
-  delete body.slots[endpoint.slot].ports?.[endpoint.side];
-  const reciprocal = body.slots[current.slot]?.ports;
-  if (reciprocal?.[current.side]?.slot === endpoint.slot && reciprocal[current.side]?.side === endpoint.side) {
-    delete reciprocal[current.side];
-  }
-}
-
-function setPort(body: Body, from: Endpoint, to: Endpoint): void {
-  const slot = body.slots[from.slot];
-  slot.ports = slot.ports ?? {};
-  slot.ports[from.side] = { slot: to.slot, side: to.side };
-}
-
-function assertEndpoint(body: Body, endpoint: Endpoint, label: string): void {
-  if (!body.slots[endpoint.slot]) throw new Error(`${label} references missing slot "${endpoint.slot}".`);
-  if (!isSide(endpoint.side)) throw new Error(`${label} side must be top, right, bottom, or left.`);
-}
-
-function nextSlotId(body: Body): SlotId {
-  let index = 1;
-  while (body.slots[`slot-${index}`] || body.pools[`slot-${index}`]) index += 1;
-  return `slot-${index}`;
-}
-
-function nextPoolId(body: Body): PoolId {
-  let index = 1;
-  while (body.pools[`pool-${index}`] || body.slots[`pool-${index}`]) index += 1;
-  return `pool-${index}`;
-}
-
-function getContainer(body: Body, target: ContainmentTarget): BodySlot | Pool {
-  if ("slot" in target) {
-    const slot = body.slots[target.slot];
-    if (!slot) throw new Error(`Target references missing slot "${target.slot}".`);
-    return slot;
-  }
-  const pool = body.pools[target.pool];
-  if (!pool) throw new Error(`Target references missing pool "${target.pool}".`);
-  return pool;
-}
-
-function describeTarget(target: ContainmentTarget): string {
-  return "slot" in target ? `slot "${target.slot}"` : `pool "${target.pool}"`;
-}
-
-function assertElement(element: ContainedElement): void {
-  if (!isId(element.kind)) {
-    throw new Error("Contained element kind must be a lowercase id.");
-  }
-  if (element.type !== undefined && !isId(element.type)) {
-    throw new Error("Contained element type must be a lowercase id.");
-  }
-}
-
-function assertCompatible(
-  container: BodySlot | Pool,
-  element: ContainedElement,
-  target: ContainmentTarget,
-  options: ContainmentOptions
-): void {
-  if (!options.checkCompatibility) return;
-  if (!isAccepted(container, element)) {
-    const label = element.type ? `${element.kind}/${element.type}` : element.kind;
-    throw new Error(`Element "${label}" is not accepted by ${describeTarget(target)}.`);
-  }
-}
-
-function cloneElement(element: ContainedElement): ContainedElement {
-  return { ...element, data: cloneJsonValue(element.data) };
-}
-
-function assertAvailableId(body: Body, id: string): void {
-  if (!isId(id)) {
-    throw new Error(`Id "${id}" must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens.`);
-  }
-  if (body.slots[id] || body.pools[id]) {
-    throw new Error(`Id "${id}" is already used by an existing slot or pool.`);
-  }
-}
-
-function connectionThroughSlot(
-  connection: Connection,
-  slotId: SlotId
-): { deleted: Endpoint; neighbor: Endpoint } | null {
-  if (connection.from.slot === slotId) {
-    return { deleted: connection.from, neighbor: connection.to };
-  }
-  if (connection.to.slot === slotId) {
-    return { deleted: connection.to, neighbor: connection.from };
-  }
-  return null;
-}
-
-function canonicalConnectionKey(a: Endpoint, b: Endpoint): string {
-  return [`${a.slot}:${a.side}`, `${b.slot}:${b.side}`].sort().join("|");
-}
-
-function positionKey(position: DerivedPosition): string {
-  return `${position.x},${position.y}`;
-}
+// Predicates
 
 function typedEntries<T>(input: Partial<Record<Side, T>>): [Side, T | undefined][] {
   return Object.entries(input) as [Side, T | undefined][];
