@@ -28,7 +28,7 @@ Three primitives, one judgment.
 ```
 Vessel  ::= { accepts?, contains?, ports? }
 Body    ::= { root, vessels }
-Element ::= { kind, type?, id?, data? }
+Element ::= { kind, type?, id?, data?, body? }
 ```
 
 - A **vessel** is a container with optional compatibility declarations (`accepts`), optional contents (`contains`), and optional connection faces (`ports`).
@@ -71,10 +71,10 @@ This requires the one field addition of the proposal: `Element.type`. v1 tokens 
 
 ### Recursion
 
-v1 already permits a consumer to stash an entire document inside `Element.data` — the protocol just can't see it. v2 acknowledges this with a blessed convention rather than a new primitive:
+v1 already permits a consumer to stash an entire document inside `Element.data` — the protocol just can't see it. v2 acknowledges this with one optional field rather than a new primitive:
 
-- An element with `kind: "body"` carries a `Body` in `data`.
-- Validation recurses into it (laws 1–7 apply at every depth).
+- An element may carry a `Body` in `element.body`. `data` remains fully opaque to the protocol; the envelope (`kind`, `type`) remains mandatory and keeps its meaning — *what this element is to its container* (see Resolved questions).
+- Validation recurses into `element.body` (laws 1–7 apply at every depth).
 - Compatibility composes across the boundary: the embedded body is an element like any other, so the *outer* vessel's `accepts` governs whether it may sit there; the embedded body's own vessels govern what *it* contains.
 
 Embedding is by value, so cycles are impossible by construction — only depth, which implementations may bound. Embedding by *reference* (shared sub-bodies, instancing) is explicitly out of scope for v2; it reintroduces aliasing and cycle detection, and belongs in a sibling protocol or a later RFC if a real consumer demands it.
@@ -120,8 +120,27 @@ The protocol's claim to be a protocol — rather than a TypeScript library — i
 2. **v2.0** — the unification: `vessels`, laws 6–7 mandatory, recursion, `Element.type`, deletions of the pool surface. `paper-doll/v2` protocol string, migration helper, JSON Schema published.
 3. **Post-v2** — sibling protocol for item collections (the other half of the `accepts` handshake), companion diff/patch package if consumers materialize.
 
-## Open questions
+## Resolved questions
 
-- Should a declared-but-empty `accepts: []` mean "accepts nothing" (sealed vessel)? Proposed: yes — it falls out of law 6 with no special case, and sealed vessels are useful (decorative nodes, structural joints).
-- Is `kind: "body"` the right reserved kind, or should recursion use a dedicated field (`element.body`) to keep `data` fully opaque? Proposed: dedicated field, leaning on the principle that `data` should never be protocol-legible — but this adds a field, so it must earn its place in review.
-- Does the root vessel's `accepts` mean anything when a body is embedded (does the *outer* token need to match the *inner* root)? Proposed: no — the embedded body matches as an ordinary element via its envelope; its internals are its own business.
+These were open in the first draft and are now resolved by discussion.
+
+**Sealed vessels.** `accepts: []` means "accepts nothing." This falls out of law 6 with no special case: every contained element must match at least one token, and an empty token set matches nothing. Absent `accepts` remains open; declared `accepts` closes the set; empty `accepts` seals it. Sealed vessels are useful (decorative nodes, structural joints).
+
+**Recursion uses a dedicated field, and the envelope is the type.** Embedded bodies ride in `element.body`, not in `data` under a reserved kind — `data` stays fully opaque to the protocol, forever. The apparent cost of the extra field buys a unification that answers the "what does `kind` mean here" question and the "do bodies need types" question at once:
+
+- `kind` (and `type`) keep exactly their existing meaning: *what this element is to its container*. They remain mandatory and never gain an empty state. `body` describes internals; the envelope describes the outside. They are orthogonal.
+- **Bodies do not have types; elements do.** A body only needs a type at the moment it is contained, which is precisely when it is wrapped in an envelope. A free-standing body (a document root) has no container asking, so it carries none.
+
+So a factory's mech bay is expressed entirely with existing law-6 machinery:
+
+```
+// the bay
+{ accepts: [{ kind: "unit", type: "mech" }] }
+
+// the mech
+{ kind: "unit", type: "mech", body: { root: "torso", vessels: { ... } } }
+```
+
+No reserved kinds, no body-level type field, no new matching rule.
+
+**The outer token does not inspect the inner root.** An embedded body matches its container's `accepts` via its envelope, like any element; its internals are its own business. One caveat recorded deliberately: this is *nominal typing on trust*. Anything can claim `type: "mech"`; paperdoll matches names and never inspects internals for mech-ness. Structural conformance — checking that a body claiming a type actually has the expected shape (a torso, two arm mounts) — is interfaces-for-bodies, a "body profile" concept that belongs in a sibling protocol. Enforcing it in core would require the protocol to know what a mech is, which is exactly the boundary the core ontology forbids crossing.
