@@ -118,7 +118,11 @@ The protocol's claim to be a protocol — rather than a TypeScript library — i
 
 1. **v1.x** — additive groundwork on the current protocol: `insertElement` / `removeElement` / `moveElement` with opt-in compatibility checking, and `matches()` as an exported query. Nothing breaks; consumers get the containment API early.
 2. **v2.0** — the unification: `vessels`, laws 6–7 mandatory, recursion, `Element.type`, deletions of the pool surface. `paper-doll/v2` protocol string, migration helper, JSON Schema published.
-3. **Post-v2** — sibling protocol for item collections (the other half of the `accepts` handshake), companion diff/patch package if consumers materialize.
+3. **Post-v2** — sibling protocols, named on a `paper*` scheme:
+   - item collections (the other half of the `accepts` handshake) — unnamed
+   - body profiles (structural conformance, interfaces-for-bodies) — unnamed
+   - cross-body relations / scenes (typed relations over vessel addresses, e.g. `holds(alice.left-hand, bob.right-hand)`; the by-reference frontier deliberately exiled from v2) — **paperchain**
+   - companion diff/patch package if consumers materialize — unnamed
 
 ## Resolved questions
 
