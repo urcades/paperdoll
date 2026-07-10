@@ -150,7 +150,7 @@ Because law 8 changes which documents are valid, it cannot slide into v2 silentl
 3. **v3** — the identity/addressing law (law 8) plus the address grammar, cut when paperfold work begins; the destructive-operation symmetry-completion lands beside it as API-only work. See "Identity: the addressing law" above.
 4. **Post-v2** — sibling protocols, named on a `paper*` scheme:
    - item collections (the other half of the `accepts` handshake) — unnamed
-   - body profiles (structural conformance, interfaces-for-bodies) — **paperform**, pre-RFC drafted: see `rfc-paperform.md`
+   - body profiles (structural conformance, interfaces-for-bodies) — **papermold**, pre-RFC drafted: see `rfc-papermold.md`
    - cross-body relations / scenes (typed relations over vessel addresses, e.g. `holds(alice.left-hand, bob.right-hand)`; the by-reference frontier deliberately exiled from v2) — **paperchain**, pre-RFC drafted: see `rfc-paperchain.md`
    - dynamics: diff/patch/apply/invert over bodies — **paperfold**. Sibling, not core: its patch vocabulary is defined as the reification of paperdoll's operation signatures, one constructor per exported operation. Kernel prerequisite: every destructive operation must return what it destroyed (`removeElement` already does; `deleteVessel`, `disconnect`, and `connect`'s implicit port-clears do not yet) — a small additive v2.x symmetry-completion to land before paperfold exists. Pre-RFC drafted: see `rfc-paperfold.md`.
 

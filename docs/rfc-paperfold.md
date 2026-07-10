@@ -2,7 +2,7 @@
 
 Status: pre-RFC (decisions recorded 2026-07-10; drafting precedes any implementation)
 Depends on: paper-doll/v2.x symmetry-completion and paper-doll/v3 (the identity/addressing law — see `rfc-vessel-calculus.md`)
-Relates to: `rfc-paperchain.md`, `rfc-paperform.md`, `core-ontology.md`, `design-gamecraft-consumer.md`
+Relates to: `rfc-paperchain.md`, `rfc-papermold.md`, `core-ontology.md`, `design-gamecraft-consumer.md`
 
 ## Definition
 
@@ -114,7 +114,7 @@ A patch document does not know who alice is. Binding a patch (or a patch history
 
 The family compositions this layer makes available, each already demanded by a named document:
 
-- **With paperform (profiles):** monitoring as diff-of-judgments. Run conformance over the patch stream and watch for transitions: a body ceasing to conform to `alive` is a death event; beginning to conform to `hostile-engaged` is an aggro trigger; a scene reaching `all-flags-captured` is a win condition. Profiles become the *goal language* and patches the *move language* — which is the whole grammar a planner needs: search over patch sequences for one whose endpoint conforms.
+- **With papermold (profiles):** monitoring as diff-of-judgments. Run conformance over the patch stream and watch for transitions: a body ceasing to conform to `alive` is a death event; beginning to conform to `hostile-engaged` is an aggro trigger; a scene reaching `all-flags-captured` is a win condition. Profiles become the *goal language* and patches the *move language* — which is the whole grammar a planner needs: search over patch sequences for one whose endpoint conforms.
 - **With gamecraft (`design-gamecraft-consumer.md`):** items as carriers of patches — an equippable's definition includes its on-equip patch and, by law 3, its inverse for unequip; wear events as patches that mutate `data` or reshape an embedded body (breakage); status effects as scheduled patch generators whose thresholds reify as structural change. The gamecraft note already promotes paperfold to next-protocol-work on this basis.
 
 ## What this unlocks
