@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.0 — 2026-07-10
+
+The `paper-doll/v3` protocol: law 8 (identity) and the address grammar. This is the shared prerequisite of paperchain and paperfold — see the kernel RFC's "Identity: the addressing law" section. A one-law protocol version, as planned.
+
+### Breaking (protocol)
+
+- Protocol string is `paper-doll/v3`. v2 documents are rejected with errors pointing at the new `migrateV2()` (protocol bump + law 8 validation); `migrateV1()` now migrates v1 documents all the way to v3.
+- **Law 8 (identity):** `element.id`, where present, must be a lowercase id (it is an address segment) and unique within its containing vessel. Elements without ids remain legal but are unaddressable. Duplicate or non-conforming ids are rejected with precise paths — migration never silently repairs.
+- Resolved from the RFC's open sub-questions: id scope is **per-vessel** (sufficient for unambiguous addresses, minimal law); duplicate handling in migration is **reject**, not suffix.
+
+### Added
+
+- **Address grammar**: `/`-separated lowercase ids alternating vessel and element segments, descending through `element.body` — `back/field-pack/main-pocket/rope`. Addresses name elements by id, never index, so they are stable under `contains` reordering.
+- `resolveAddress(body, address)` → `{ kind: "vessel", ... } | { kind: "element", index, element, ... } | null`, and `parseAddress`. `ResolvedAddress` type export.
+- `insertElement` / `moveElement` enforce law 8 at the destination.
+- `schema/paper-doll-v3.schema.json` (the v2 schema remains for the record).
+
+
 ## 0.7.0 — 2026-07-10
 
 The symmetry-completion (paperfold prerequisite (a), per `docs/rfc-paperfold.md`): every destructive or overwriting operation now returns what it removed, so callers can construct inverse operations without diffing. API-only — no document format changes, protocol string stays `paper-doll/v2`.

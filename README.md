@@ -62,7 +62,7 @@ An **element** is a thing contained: `{ kind, type?, id?, data?, body? }`. It is
 
 ## Laws
 
-Validity is the conjunction of seven laws, applied recursively to every embedded body:
+Validity is the conjunction of eight laws, applied recursively to every embedded body:
 
 1. **Rootedness** — `root` names an existing vessel.
 2. **Reciprocity** — every port is reciprocated by its target.
@@ -71,8 +71,23 @@ Validity is the conjunction of seven laws, applied recursively to every embedded
 5. **Reachability** — every ported vessel is in the figure.
 6. **Compatibility** — in a vessel that declares `accepts`, every contained element matches at least one accept token. Absent `accepts` is open; `accepts: []` is sealed.
 7. **Recursive validity** — every embedded body is itself valid.
+8. **Identity** — element ids, where present, are lowercase ids unique within their vessel. Elements without ids are legal but unaddressable.
 
 Matching is purely structural: a token `{ kind, type? }` matches an element when kinds are equal and the token's `type`, if present, equals the element's `type`. The protocol never interprets what a kind means.
+
+## Addressing
+
+Law 8 makes stable addresses possible. An address is a `/`-separated path of lowercase ids, alternating vessel and element segments, descending through `element.body`:
+
+```ts
+import { resolveAddress } from "paperdoll";
+
+resolveAddress(body, "left-hand");                        // { kind: "vessel", ... }
+resolveAddress(body, "left-hand/steel-dagger");           // { kind: "element", index, element }
+resolveAddress(body, "back/field-pack/main-pocket/rope"); // descends into the pack's own body
+```
+
+`resolveAddress` returns `null` for addresses that don't resolve and throws on malformed input. Addresses are stable under `contains` reordering — they name elements by id, never by index — which is what sibling protocols (paperchain scenes, paperfold patches) rely on.
 
 ## Editing Bodies
 
@@ -115,28 +130,27 @@ Operations enforce local laws (existing endpoints, opposition, no self-connectio
 
 ## Migrating from v1
 
-`paper-doll/v1` documents (separate `slots` and `pools`) are rejected by the v2 parser with errors pointing at `migrateV1`:
+Legacy documents are rejected by the v3 parser with errors pointing at the right migration:
 
 ```ts
-import { migrateV1 } from "paperdoll";
+import { migrateV1, migrateV2 } from "paperdoll";
 
-const migrated = migrateV1(v1Document);
-if (migrated.ok) {
-  // migrated.value is a valid paper-doll/v2 document
-}
+const fromV1 = migrateV1(v1Document); // slots+pools -> vessels, port addresses rewritten
+const fromV2 = migrateV2(v2Document); // protocol string bump + law 8 validation
 ```
 
-Migration merges `slots` and `pools` into `vessels` (id collisions are an error) and rewrites port addresses from `{ slot, side }` to `{ vessel, side }`. Note that law 6 is mandatory in v2: a v1 document whose contents violate its own `accepts` declarations will fail migration with precise errors.
+Both return `Result` values. Migration is strict: a v1 document whose contents violate its own `accepts` (law 6), or a v2 document with duplicate or non-lowercase element ids (law 8), fails with precise error paths rather than being silently repaired.
 
 ## Portability
 
-The protocol is not the TypeScript library — it is the document format plus the laws. [`schema/paper-doll-v2.schema.json`](schema/paper-doll-v2.schema.json) is a JSON Schema (2020-12) capturing the structural laws; laws 2–7 beyond schema expressiveness are specified in [`docs/rfc-vessel-calculus.md`](docs/rfc-vessel-calculus.md). Any language can validate paperdoll documents.
+The protocol is not the TypeScript library — it is the document format plus the laws. [`schema/paper-doll-v3.schema.json`](schema/paper-doll-v3.schema.json) is a JSON Schema (2020-12) capturing the structural laws; laws 2–8 beyond schema expressiveness are specified in [`docs/rfc-vessel-calculus.md`](docs/rfc-vessel-calculus.md). Any language can validate paperdoll documents. (The v2 schema remains in `schema/` for the record.)
 
 ## API
 
 - constants: `PAPER_DOLL_PROTOCOL`, `SIDES`, `OPPOSITE_SIDES`
 - validation: `parseDocument`, `assertDocument`, `validateDocument`, `formatProtocolErrors`
-- migration: `migrateV1`
+- migration: `migrateV1`, `migrateV2`
+- addressing: `parseAddress`, `resolveAddress`
 - graph/layout: `deriveConnections`, `deriveLayout`
 - compatibility queries: `matches`, `isAccepted`
 - topology operations: `connect`, `disconnect`, `insertVessel`, `deleteVessel`

@@ -1,6 +1,7 @@
-export const PAPER_DOLL_PROTOCOL = "paper-doll/v2" as const;
+export const PAPER_DOLL_PROTOCOL = "paper-doll/v3" as const;
 
-const LEGACY_PROTOCOL = "paper-doll/v1";
+const V1_PROTOCOL = "paper-doll/v1";
+const V2_PROTOCOL = "paper-doll/v2";
 
 export const SIDES = ["top", "right", "bottom", "left"] as const;
 
@@ -124,8 +125,10 @@ export function validateDocument(input: unknown): ProtocolError[] {
     return [{ path: "$", message: "Document must be an object." }];
   }
 
-  if (input.protocol === LEGACY_PROTOCOL) {
-    errors.push({ path: "$.protocol", message: `${LEGACY_PROTOCOL} documents must be migrated. Use migrateV1().` });
+  if (input.protocol === V1_PROTOCOL) {
+    errors.push({ path: "$.protocol", message: `${V1_PROTOCOL} documents must be migrated. Use migrateV1().` });
+  } else if (input.protocol === V2_PROTOCOL) {
+    errors.push({ path: "$.protocol", message: `${V2_PROTOCOL} documents must be migrated. Use migrateV2().` });
   } else if (input.protocol !== PAPER_DOLL_PROTOCOL) {
     errors.push({ path: "$.protocol", message: `Expected "${PAPER_DOLL_PROTOCOL}".` });
   }
@@ -142,8 +145,8 @@ export function migrateV1(input: unknown): Result<PaperDollDocument, ProtocolErr
   if (!isRecord(input)) {
     return { ok: false, errors: [{ path: "$", message: "Document must be an object." }] };
   }
-  if (input.protocol !== LEGACY_PROTOCOL) {
-    errors.push({ path: "$.protocol", message: `Expected "${LEGACY_PROTOCOL}".` });
+  if (input.protocol !== V1_PROTOCOL) {
+    errors.push({ path: "$.protocol", message: `Expected "${V1_PROTOCOL}".` });
   }
   const body = input.body;
   if (!isRecord(body) || !isRecord(body.slots) || !isRecord(body.pools)) {
@@ -168,6 +171,16 @@ export function migrateV1(input: unknown): Result<PaperDollDocument, ProtocolErr
     protocol: PAPER_DOLL_PROTOCOL,
     body: { root: body.root, vessels }
   });
+}
+
+export function migrateV2(input: unknown): Result<PaperDollDocument, ProtocolError[]> {
+  if (!isRecord(input)) {
+    return { ok: false, errors: [{ path: "$", message: "Document must be an object." }] };
+  }
+  if (input.protocol !== V2_PROTOCOL) {
+    return { ok: false, errors: [{ path: "$.protocol", message: `Expected "${V2_PROTOCOL}".` }] };
+  }
+  return parseDocument({ ...input, protocol: PAPER_DOLL_PROTOCOL });
 }
 
 function migrateV1Vessel(input: unknown): unknown {
@@ -287,6 +300,57 @@ function deriveLayoutResult(body: Body, path: string): Result<DerivedLayout, Pro
       connections: deriveConnections(body)
     }
   };
+}
+
+// Addressing (paper-doll/v3)
+//
+// An address is a "/"-separated path of lowercase ids, alternating vessel and
+// element segments, starting from a vessel of the given body:
+//
+//   left-hand                        -> a vessel
+//   left-hand/steel-dagger           -> an element (by id) in that vessel
+//   back/field-pack/main-pocket/rope -> descends through element.body
+//
+// Elements without ids are legal but unaddressable. Law 8 (per-vessel id
+// uniqueness) is what makes element segments unambiguous.
+
+export type ResolvedAddress =
+  | { kind: "vessel"; body: Body; vesselId: VesselId; vessel: Vessel }
+  | { kind: "element"; body: Body; vesselId: VesselId; index: number; element: ContainedElement };
+
+export function parseAddress(address: string): string[] {
+  const segments = address.split("/");
+  if (segments.length === 0 || segments.some((segment) => !isId(segment))) {
+    throw new Error(`Address "${address}" must be "/"-separated lowercase ids.`);
+  }
+  return segments;
+}
+
+export function resolveAddress(body: Body, address: string): ResolvedAddress | null {
+  const segments = parseAddress(address);
+  let scope = body;
+  let position = 0;
+
+  for (;;) {
+    const vesselId = segments[position] as string;
+    const vessel = scope.vessels[vesselId];
+    if (!vessel) return null;
+    if (position === segments.length - 1) {
+      return { kind: "vessel", body: scope, vesselId, vessel };
+    }
+
+    const elementId = segments[position + 1] as string;
+    const index = (vessel.contains ?? []).findIndex((element) => element.id === elementId);
+    if (index === -1) return null;
+    const element = (vessel.contains as readonly ContainedElement[])[index] as ContainedElement;
+    if (position + 1 === segments.length - 1) {
+      return { kind: "element", body: scope, vesselId, index, element };
+    }
+
+    if (!element.body) return null;
+    scope = element.body;
+    position += 2;
+  }
 }
 
 // Compatibility
@@ -415,6 +479,7 @@ export function insertElement(body: Body, vesselId: VesselId, element: Contained
   const vessel = getVessel(body, vesselId);
   assertElement(element);
   assertAccepted(vessel, element, vesselId);
+  assertUniqueId(vessel, element, vesselId);
 
   const next = cloneBody(body);
   const container = next.vessels[vesselId];
@@ -447,6 +512,7 @@ export function moveElement(body: Body, from: VesselId, index: number, to: Vesse
     throw new Error(`No element at index ${index} in vessel "${from}".`);
   }
   assertAccepted(getVessel(body, to), element, to);
+  if (from !== to) assertUniqueId(getVessel(body, to), element, to);
 
   const next = cloneBody(body);
   const source = next.vessels[from];
@@ -622,6 +688,21 @@ function validateContainedElements(value: unknown, path: string, errors: Protoco
   }
 
   value.forEach((element, index) => validateContainedElement(element, `${path}.${index}`, errors));
+
+  // Law 8 (identity): element ids, where present, are unique within their vessel.
+  const seen = new Map<string, number>();
+  value.forEach((element, index) => {
+    if (!isRecord(element) || !isId(element.id)) return;
+    const prior = seen.get(element.id);
+    if (prior !== undefined) {
+      errors.push({
+        path: `${path}.${index}.id`,
+        message: `Duplicate element id "${element.id}" within this vessel; ids must be unique per vessel (law 8).`
+      });
+      return;
+    }
+    seen.set(element.id, index);
+  });
 }
 
 function validateContainedElement(value: unknown, path: string, errors: ProtocolError[]): void {
@@ -637,8 +718,8 @@ function validateContainedElement(value: unknown, path: string, errors: Protocol
   if (value.type !== undefined && !isId(value.type)) {
     errors.push({ path: `${path}.type`, message: "Contained element type must be a lowercase id." });
   }
-  if (value.id !== undefined && typeof value.id !== "string") {
-    errors.push({ path: `${path}.id`, message: "Contained element id must be a string." });
+  if (value.id !== undefined && !isId(value.id)) {
+    errors.push({ path: `${path}.id`, message: "Contained element id must be a lowercase id (it is an address segment)." });
   }
   if (value.data !== undefined && !isJsonValue(value.data)) {
     errors.push({ path: `${path}.data`, message: "Contained element data must be JSON-compatible." });
@@ -682,12 +763,22 @@ function assertElement(element: ContainedElement): void {
   if (element.type !== undefined && !isId(element.type)) {
     throw new Error("Contained element type must be a lowercase id.");
   }
+  if (element.id !== undefined && !isId(element.id)) {
+    throw new Error("Contained element id must be a lowercase id (it is an address segment).");
+  }
   if (element.body !== undefined) {
     const errors: ProtocolError[] = [];
     validateBody(element.body, "$.element.body", errors);
     if (errors.length > 0) {
       throw new Error(formatProtocolErrors(errors));
     }
+  }
+}
+
+function assertUniqueId(vessel: Vessel, element: ContainedElement, vesselId: VesselId): void {
+  if (element.id === undefined) return;
+  if ((vessel.contains ?? []).some((existing) => existing.id === element.id)) {
+    throw new Error(`Element id "${element.id}" is already used in vessel "${vesselId}" (law 8).`);
   }
 }
 

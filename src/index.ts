@@ -14,9 +14,12 @@ export {
   isAccepted,
   matches,
   migrateV1,
+  migrateV2,
   moveElement,
+  parseAddress,
   parseDocument,
   removeElement,
+  resolveAddress,
   validateDocument
 } from "./protocol.js";
 
@@ -34,6 +37,7 @@ export type {
   PaperDollDocument,
   PortAddress,
   ProtocolError,
+  ResolvedAddress,
   Result,
   Side,
   Vessel,

@@ -126,9 +126,11 @@ Recorded 2026-07-10, after discussion. Capacity looks like one field (`max: n` o
 
 **Decision: build nothing until the first-party gamecraft consumer (`design-gamecraft-consumer.md`) concretely fails to express a mechanic without it.** That moment identifies which fragment is actually needed (possibly only `max: 1`, a far smaller RFC than the survey above) and supplies a real consumer to test the disjointness trade against. Waiting is free: strict unknown-key validation means no capacity dialect can drift into existence in the interim — an `accepts` token carrying `max` is rejected by every v2 validator today, so capacity arrives as a clean versioned event or not at all. If it arrives, the expected shape is: `max` on vessels and on tokens, the disjointness law, `count` on the element envelope, and weights/shapes explicitly rejected with the dissolution argument.
 
-### Identity: the addressing law (planned as paper-doll/v3)
+### Identity: the addressing law (paper-doll/v3 — shipped in 0.8.0)
 
-Recorded 2026-07-10, after discussion. Identity splits in two, and the halves land on opposite sides of the protocol boundary:
+Recorded 2026-07-10, after discussion; shipped the same day in paperdoll 0.8.0. The two open sub-questions were resolved at implementation: id scope is **per-vessel** (sufficient for unambiguous vessel/element/vessel addresses, and the minimal law), and migration **rejects** duplicates with precise paths rather than suffixing (no silent repair). One consequence surfaced during implementation and adopted: `element.id` must itself be a lowercase id, since it is an address segment and the grammar reserves `/`.
+
+Identity splits in two, and the halves land on opposite sides of the protocol boundary:
 
 - **Identity assignment** — who is alice, minting character ids, body factories, registries — is a consumer concern, permanently. Bodies are anonymous values; consumers wrap them (`{ characterId, body }`). The protocol will never own a character registry.
 - **Identity reference** — the address syntax and resolution rules by which *documents* point at vessels and elements — is protocol surface, because sibling documents (paperchain scenes, paperfold patches) are interchange: a Rust validator and a TypeScript validator must resolve `alice.left-hand/steel-dagger` identically. The web analogy: the protocol owns the URL syntax, never the registrar.
@@ -147,7 +149,7 @@ Because law 8 changes which documents are valid, it cannot slide into v2 silentl
 
 1. **v1.x** — additive groundwork on the current protocol: `insertElement` / `removeElement` / `moveElement` with opt-in compatibility checking, and `matches()` as an exported query. Nothing breaks; consumers get the containment API early.
 2. **v2.0** — the unification: `vessels`, laws 6–7 mandatory, recursion, `Element.type`, deletions of the pool surface. `paper-doll/v2` protocol string, migration helper, JSON Schema published.
-3. **v3** — the identity/addressing law (law 8) plus the address grammar, cut when paperfold work begins; the destructive-operation symmetry-completion lands beside it as API-only work. See "Identity: the addressing law" above.
+3. **v3** — the identity/addressing law (law 8) plus the address grammar (shipped in 0.8.0); the destructive-operation symmetry-completion landed beside it as API-only work in 0.7.0. See "Identity: the addressing law" above.
 4. **Post-v2** — sibling protocols, named on a `paper*` scheme:
    - item collections (the other half of the `accepts` handshake) — unnamed
    - body profiles (structural conformance, interfaces-for-bodies) — **papermold**, pre-RFC drafted: see `rfc-papermold.md`

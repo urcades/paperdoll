@@ -46,7 +46,7 @@ Both are recorded in the kernel RFC; paperfold implementation cannot start befor
 
 **(a) The symmetry-completion (paper-doll/v2.x, API-only).** Law 3 requires that every destructive operation return what it destroyed, so the undo half of each entry can be constructed at patch-creation time. Today the ledger is uneven: `removeElement` already returns the removed element; `deleteVessel` swallows the vessel and its severed connections; `disconnect` swallows the connection; `connect` silently clears up to two prior ports. Completing the symmetry is additive API work — no document changes, no protocol bump. (Shipped: paperdoll 0.7.0, 2026-07-10.)
 
-**(b) paper-doll/v3 addressing.** Patches must name what they touched, and element addressing is unstable today: `contains` is an ordered array whose indices shift under splice, and `element.id` is optional and non-unique. Index-paths are invalidated by the very patches paperfold exists to record. Law 8 (element id uniqueness) plus the address grammar is the shared prerequisite — designed once, in the kernel, never per-sibling (paperchain decision 5 records the same dependency from the other side).
+**(b) paper-doll/v3 addressing.** Patches must name what they touched, and element addressing is unstable today: `contains` is an ordered array whose indices shift under splice, and `element.id` is optional and non-unique. Index-paths are invalidated by the very patches paperfold exists to record. Law 8 (element id uniqueness) plus the address grammar is the shared prerequisite — designed once, in the kernel, never per-sibling (paperchain decision 5 records the same dependency from the other side). (Shipped: paper-doll/v3, paperdoll 0.8.0, 2026-07-10.)
 
 ## The patch document
 

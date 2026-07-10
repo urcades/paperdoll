@@ -9,9 +9,11 @@ import {
   isAccepted,
   matches,
   migrateV1,
+  migrateV2,
   moveElement,
   parseDocument,
   removeElement,
+  resolveAddress,
   type PaperDollDocument
 } from "../src/protocol";
 import { DEFAULT_DOCUMENT, LEGACY_V1_DOCUMENT } from "./sample-document";
@@ -27,8 +29,8 @@ function errorMessages(result: ReturnType<typeof parseDocument>): string {
   return result.ok ? "" : result.errors.map((error) => error.message).join("\n");
 }
 
-describe("paper doll protocol v2", () => {
-  it("accepts the v2 sample document", () => {
+describe("paper doll protocol v3", () => {
+  it("accepts the v3 sample document", () => {
     const parsed = parseDocument(DEFAULT_DOCUMENT);
     expect(errorMessages(parsed)).toBe("");
     expect(parsed.ok).toBe(true);
@@ -66,7 +68,7 @@ describe("paper doll protocol v2", () => {
 
   it("rejects rooted layout collisions", () => {
     const document: PaperDollDocument = {
-      protocol: "paper-doll/v2",
+      protocol: "paper-doll/v3",
       body: {
         root: "body",
         vessels: {
@@ -139,7 +141,7 @@ describe("paper doll protocol v2", () => {
     if (!migrated.ok) return;
 
     const { body } = migrated.value;
-    expect(migrated.value.protocol).toBe("paper-doll/v2");
+    expect(migrated.value.protocol).toBe("paper-doll/v3");
     expect(Object.keys(body.vessels).sort()).toEqual(["body", "floating", "head"]);
     expect(body.vessels.body.ports?.top).toEqual({ vessel: "head", side: "bottom" });
     expect(body.vessels.floating.contains).toEqual([{ kind: "item", type: "floating", id: "glowsphere" }]);
@@ -154,6 +156,96 @@ describe("paper doll protocol v2", () => {
     expect(migrated.ok).toBe(false);
     if (migrated.ok) return;
     expect(migrated.errors[0].message).toContain("collides with a slot id");
+  });
+
+  it("rejects v2 documents and points at migrateV2, which migrates them", () => {
+    const v2 = structuredClone(DEFAULT_DOCUMENT) as unknown as Record<string, unknown>;
+    v2.protocol = "paper-doll/v2";
+
+    const parsed = parseDocument(v2);
+    expect(parsed.ok).toBe(false);
+    expect(errorMessages(parsed)).toContain("migrateV2");
+
+    const migrated = migrateV2(v2);
+    expect(migrated.ok).toBe(true);
+    if (!migrated.ok) return;
+    expect(migrated.value.protocol).toBe("paper-doll/v3");
+    expect(migrated.value.body).toEqual(DEFAULT_DOCUMENT.body);
+  });
+
+  it("law 8: rejects duplicate element ids within a vessel", () => {
+    const document = cloneDocument();
+    document.body.vessels["left-hand"].contains = [
+      { kind: "item", type: "weapon", id: "steel-dagger" },
+      { kind: "item", type: "weapon", id: "steel-dagger" }
+    ];
+
+    const parsed = parseDocument(document);
+    expect(parsed.ok).toBe(false);
+    expect(errorMessages(parsed)).toContain('Duplicate element id "steel-dagger"');
+
+    // same id in different vessels is fine (per-vessel scope)
+    const twoVessels = cloneDocument();
+    twoVessels.body.vessels["right-hand"].contains = [{ kind: "item", type: "weapon", id: "steel-dagger" }];
+    expect(parseDocument(twoVessels).ok).toBe(true);
+  });
+
+  it("law 8: rejects non-address-safe element ids", () => {
+    const document = cloneDocument();
+    document.body.vessels.head.contains = [{ kind: "item", type: "head", id: "Salve Hood/2" }];
+
+    const parsed = parseDocument(document);
+    expect(parsed.ok).toBe(false);
+    expect(errorMessages(parsed)).toContain("address segment");
+  });
+
+  it("law 8: insertElement and moveElement refuse id collisions at the destination", () => {
+    expect(() =>
+      insertElement(DEFAULT_DOCUMENT.body, "left-hand", { kind: "item", type: "weapon", id: "steel-dagger" })
+    ).toThrow('already used in vessel "left-hand" (law 8)');
+
+    const armed = insertElement(DEFAULT_DOCUMENT.body, "right-hand", {
+      kind: "item",
+      type: "weapon",
+      id: "steel-dagger"
+    });
+    expect(() => moveElement(armed, "left-hand", 0, "right-hand")).toThrow("(law 8)");
+  });
+
+  it("resolves vessel, element, and nested addresses", () => {
+    const body = DEFAULT_DOCUMENT.body;
+
+    const vessel = resolveAddress(body, "left-hand");
+    expect(vessel).toMatchObject({ kind: "vessel", vesselId: "left-hand" });
+
+    const element = resolveAddress(body, "left-hand/steel-dagger");
+    expect(element).toMatchObject({
+      kind: "element",
+      vesselId: "left-hand",
+      index: 0,
+      element: { id: "steel-dagger" }
+    });
+
+    const nested = resolveAddress(body, "back/field-pack/main-pocket/rope");
+    expect(nested).toMatchObject({ kind: "element", vesselId: "main-pocket", element: { id: "rope" } });
+    const nestedVessel = resolveAddress(body, "back/field-pack/side-pocket");
+    expect(nestedVessel).toMatchObject({ kind: "vessel", vesselId: "side-pocket" });
+  });
+
+  it("addresses are stable under reordering, and misses return null", () => {
+    // remove the first element of right-hand, then address the dagger inserted after it
+    const armed = insertElement(DEFAULT_DOCUMENT.body, "right-hand", {
+      kind: "item",
+      type: "weapon",
+      id: "dagger-two"
+    });
+    const shuffled = removeElement(armed, "right-hand", 0).body;
+    expect(resolveAddress(shuffled, "right-hand/dagger-two")).toMatchObject({ kind: "element", index: 0 });
+
+    expect(resolveAddress(DEFAULT_DOCUMENT.body, "ghost")).toBeNull();
+    expect(resolveAddress(DEFAULT_DOCUMENT.body, "left-hand/ghost")).toBeNull();
+    expect(resolveAddress(DEFAULT_DOCUMENT.body, "feet/leather-moccasins/sole")).toBeNull(); // no embedded body
+    expect(() => resolveAddress(DEFAULT_DOCUMENT.body, "Left Hand//x")).toThrow("lowercase ids");
   });
 
   it("enforces the compatibility law in validation", () => {

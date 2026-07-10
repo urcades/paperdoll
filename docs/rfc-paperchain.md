@@ -76,7 +76,7 @@ When a vessel is deleted out from under a relation (a patch severs Alice's arm),
 
 ### 5. paper-doll/v3 comes first
 
-The address grammar (`alice/left-hand/steel-dagger`, recursing through `element.body`) is a shared dependency of paperchain and paperfold. It is designed once, in paperdoll, as law 8 plus the grammar — never per-sibling. paperchain drafting can proceed; paperchain implementation cannot start before v3 ships.
+The address grammar (`alice/left-hand/steel-dagger`, recursing through `element.body`) is a shared dependency of paperchain and paperfold. It is designed once, in paperdoll, as law 8 plus the grammar — never per-sibling. paperchain drafting can proceed; paperchain implementation cannot start before v3 ships. (v3 shipped: paperdoll 0.8.0, 2026-07-10.)
 
 ## What this unlocks
 
