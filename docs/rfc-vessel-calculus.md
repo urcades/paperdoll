@@ -122,7 +122,7 @@ The protocol's claim to be a protocol — rather than a TypeScript library — i
    - item collections (the other half of the `accepts` handshake) — unnamed
    - body profiles (structural conformance, interfaces-for-bodies) — unnamed
    - cross-body relations / scenes (typed relations over vessel addresses, e.g. `holds(alice.left-hand, bob.right-hand)`; the by-reference frontier deliberately exiled from v2) — **paperchain**
-   - companion diff/patch package if consumers materialize — unnamed
+   - dynamics: diff/patch/apply/invert over bodies — **paperfold**. Sibling, not core: its patch vocabulary is defined as the reification of paperdoll's operation signatures, one constructor per exported operation. Kernel prerequisite: every destructive operation must return what it destroyed (`removeElement` already does; `deleteVessel`, `disconnect`, and `connect`'s implicit port-clears do not yet) — a small additive v2.x symmetry-completion to land before paperfold exists.
 
 ## Resolved questions
 
