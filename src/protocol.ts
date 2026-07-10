@@ -367,6 +367,38 @@ export function isAccepted(
   return container.accepts.some((token) => matches(token, element));
 }
 
+// Piecemeal validators
+//
+// Sibling protocols (paperchain, paperfold) embed fragments of the kernel's
+// grammar — ids, endpoints, connections, accept tokens, contained elements —
+// inside their own documents. These validators are exported so siblings
+// validate fragments with the kernel's own machinery instead of private
+// copies that drift when the grammar changes.
+
+export function validateEndpoint(input: unknown, path: string, errors: ProtocolError[]): void {
+  if (!isRecord(input)) {
+    errors.push({ path, message: "Endpoint must be an object with vessel and side." });
+    return;
+  }
+  validateKnownKeys(input, ["vessel", "side"], path, errors);
+  if (!isId(input.vessel)) {
+    errors.push({ path: `${path}.vessel`, message: "Endpoint vessel must be a valid vessel id." });
+  }
+  if (!isSide(input.side)) {
+    errors.push({ path: `${path}.side`, message: "Endpoint side must be top, right, bottom, or left." });
+  }
+}
+
+export function validateConnection(input: unknown, path: string, errors: ProtocolError[]): void {
+  if (!isRecord(input)) {
+    errors.push({ path, message: "Connection must be an object with from and to endpoints." });
+    return;
+  }
+  validateKnownKeys(input, ["from", "to"], path, errors);
+  validateEndpoint(input.from, `${path}.from`, errors);
+  validateEndpoint(input.to, `${path}.to`, errors);
+}
+
 // Topology operations
 //
 // Every operation that destroys or overwrites protocol state returns what it
@@ -675,7 +707,7 @@ function validateAcceptTokens(value: unknown, path: string, errors: ProtocolErro
   value.forEach((token, index) => validateAcceptToken(token, `${path}.${index}`, errors));
 }
 
-function validateAcceptToken(value: unknown, path: string, errors: ProtocolError[]): void {
+export function validateAcceptToken(value: unknown, path: string, errors: ProtocolError[]): void {
   if (!isRecord(value)) {
     errors.push({ path, message: "Accept token must be an object." });
     return;
@@ -715,7 +747,7 @@ function validateContainedElements(value: unknown, path: string, errors: Protoco
   });
 }
 
-function validateContainedElement(value: unknown, path: string, errors: ProtocolError[]): void {
+export function validateContainedElement(value: unknown, path: string, errors: ProtocolError[]): void {
   if (!isRecord(value)) {
     errors.push({ path, message: "Contained element must be an object." });
     return;
@@ -739,7 +771,7 @@ function validateContainedElement(value: unknown, path: string, errors: Protocol
   }
 }
 
-function validateKnownKeys(
+export function validateKnownKeys(
   input: Record<string, unknown>,
   allowed: readonly string[],
   path: string,
@@ -915,7 +947,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isId(value: unknown): value is string {
+export function isId(value: unknown): value is string {
   return typeof value === "string" && ID_PATTERN.test(value);
 }
 

@@ -12,6 +12,7 @@ export {
   insertElement,
   insertVessel,
   isAccepted,
+  isId,
   matches,
   migrateV1,
   migrateV2,
@@ -20,7 +21,12 @@ export {
   parseDocument,
   removeElement,
   resolveAddress,
-  validateDocument
+  validateAcceptToken,
+  validateConnection,
+  validateContainedElement,
+  validateDocument,
+  validateEndpoint,
+  validateKnownKeys
 } from "./protocol.js";
 
 export type {

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.2 — 2026-07-10
+
+Additive. Exports the piecemeal validators sibling protocols (paperchain, paperfold) were privately copying, so grammar fragments embedded in sibling documents are validated by the kernel's own machinery — explicit versioned coupling instead of silent drift (per the family cross-review):
+
+- `isId` — the id grammar (`/^[a-z][a-z0-9-]*$/`) as a predicate.
+- `validateKnownKeys` — the strict unknown-key rejection helper.
+- `validateEndpoint`, `validateConnection` — structural validation of `{ vessel, side }` endpoints and `{ from, to }` connections (no body required; use `connect`/`disconnect` for body-aware checks).
+- `validateAcceptToken`, `validateContainedElement` — the per-item validators behind `accepts`/`contains` validation. `validateContainedElement` recurses into `element.body` with full document validation.
+
+No protocol or behavior changes.
+
+
 ## 0.8.1 — 2026-07-10
 
 Two additive reification completions surfaced while specifying paperfold's inversion law:

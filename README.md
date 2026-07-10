@@ -149,6 +149,7 @@ The protocol is not the TypeScript library — it is the document format plus th
 
 - constants: `PAPER_DOLL_PROTOCOL`, `SIDES`, `OPPOSITE_SIDES`
 - validation: `parseDocument`, `assertDocument`, `validateDocument`, `formatProtocolErrors`
+- piecemeal validation (for sibling protocols embedding kernel fragments): `isId`, `validateKnownKeys`, `validateEndpoint`, `validateConnection`, `validateAcceptToken`, `validateContainedElement`
 - migration: `migrateV1`, `migrateV2`
 - addressing: `parseAddress`, `resolveAddress`
 - graph/layout: `deriveConnections`, `deriveLayout`
