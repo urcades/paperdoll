@@ -336,6 +336,25 @@ describe("paper doll protocol v3", () => {
     );
   });
 
+  it("insertElement at an index and insertVessel bridging report enough to invert", () => {
+    // positional insert: removeElement at a middle index is exactly invertible
+    const { body: without, element } = removeElement(DEFAULT_DOCUMENT.body, "left-hand", 0);
+    const restored = insertElement(without, "left-hand", element, 0);
+    expect(restored).toEqual(DEFAULT_DOCUMENT.body);
+    expect(() => insertElement(DEFAULT_DOCUMENT.body, "left-hand", { kind: "item", type: "tool" }, 5)).toThrow(
+      "out of range"
+    );
+
+    // bridged: the connection the bridge replaced is reported
+    const bridgedInsert = insertVessel(DEFAULT_DOCUMENT.body, {}, { at: { vessel: "body", side: "right" }, id: "elbow" });
+    expect(bridgedInsert.bridged).toEqual({
+      from: { vessel: "body", side: "right" },
+      to: { vessel: "right-arm", side: "left" }
+    });
+    const freeInsert = insertVessel(DEFAULT_DOCUMENT.body, {});
+    expect(freeInsert.bridged).toBeNull();
+  });
+
   it("insertVessel with an endpoint bridges an occupied connection", () => {
     const bodyBefore = structuredClone(DEFAULT_DOCUMENT.body);
     const result = insertVessel(

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1 — 2026-07-10
+
+Two additive reification completions surfaced while specifying paperfold's inversion law:
+
+- `insertElement` accepts an optional position (`insertElement(body, vesselId, element, at?)`), so a `removeElement` at a middle index is exactly invertible.
+- `insertVessel` additionally returns `bridged: Connection | null` — the connection a bridging insert replaced (the last destructive-in-spirit operation that wasn't confessing).
+
+
 ## 0.8.0 — 2026-07-10
 
 The `paper-doll/v3` protocol: law 8 (identity) and the address grammar. This is the shared prerequisite of paperchain and paperfold — see the kernel RFC's "Identity: the addressing law" section. A one-law protocol version, as planned.

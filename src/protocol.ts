@@ -406,7 +406,7 @@ export function insertVessel(
   body: Body,
   vessel: Omit<Vessel, "ports"> = {},
   options: InsertVesselOptions = {}
-): { body: Body; vesselId: VesselId } {
+): { body: Body; vesselId: VesselId; bridged: Connection | null } {
   const vesselId = options.id ?? nextVesselId(body);
   assertAvailableId(body, vesselId);
 
@@ -419,17 +419,19 @@ export function insertVessel(
     }
   };
 
+  let bridged: Connection | null = null;
   if (options.at) {
     const at = options.at;
     assertEndpoint(body, at, "at");
     const prior = body.vessels[at.vessel]?.ports?.[at.side];
     if (prior) {
+      bridged = { from: { vessel: at.vessel, side: at.side }, to: { vessel: prior.vessel, side: prior.side } };
       next = connect(next, { vessel: vesselId, side: at.side }, prior).body;
     }
     next = connect(next, at, { vessel: vesselId, side: OPPOSITE_SIDES[at.side] }).body;
   }
 
-  return { body: next, vesselId };
+  return { body: next, vesselId, bridged };
 }
 
 export function deleteVessel(
@@ -475,15 +477,23 @@ export function deleteVessel(
 
 // Containment operations
 
-export function insertElement(body: Body, vesselId: VesselId, element: ContainedElement): Body {
+export function insertElement(body: Body, vesselId: VesselId, element: ContainedElement, at?: number): Body {
   const vessel = getVessel(body, vesselId);
   assertElement(element);
   assertAccepted(vessel, element, vesselId);
   assertUniqueId(vessel, element, vesselId);
 
+  const length = (vessel.contains ?? []).length;
+  const index = at ?? length;
+  if (!Number.isInteger(index) || index < 0 || index > length) {
+    throw new Error(`Insert position ${at} is out of range for vessel "${vesselId}".`);
+  }
+
   const next = cloneBody(body);
   const container = next.vessels[vesselId];
-  container.contains = [...(container.contains ?? []), cloneElement(element)];
+  const contents = [...(container.contains ?? [])];
+  contents.splice(index, 0, cloneElement(element));
+  container.contains = contents;
   return next;
 }
 
