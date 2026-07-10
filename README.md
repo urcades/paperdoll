@@ -160,6 +160,17 @@ The protocol is not the TypeScript library — it is the document format plus th
 
 Validation is strict: unknown keys anywhere in a document are rejected, so presentation or game data cannot ride along inside protocol documents. Attach consumer data through `ContainedElement.data` (which is opaque to the protocol, always) or keep it outside the document keyed by vessel id. `parseDocument` returns a deep copy of its input.
 
+## The paper* Family
+
+paperdoll is the kernel of a four-protocol family. Each sibling answers a different question about bodies, imports the kernel, and never reaches into its internals:
+
+- [`paperdoll`](https://github.com/urcades/paperdoll) — *is this arrangement of vessels lawful?* The eight laws, the address grammar, the pure operations. This library.
+- [`paperchain`](https://github.com/urcades/paperchain) — *how do bodies relate to each other?* Scenes: flat, typed, geometry-free relations between addresses across bodies (two paper dolls holding hands).
+- [`paperfold`](https://github.com/urcades/paperfold) — *how did a body change?* Patches: diff, apply, compose, invert — change itself as a value, with laws.
+- [`papermold`](https://github.com/urcades/papermold) — *is this body a valid instance of some kind?* Profiles: structural conformance judged against consumer-authored stencils ("is this really mech-shaped?").
+
+The design record lives in this repo: the RFCs under [`docs/`](docs/) capture every decision, every deliberate refusal, and the [transcript](docs/transcript-2026-07-building-the-paper-family.md) of the discussions that produced them.
+
 ## Design Notes
 
 See [`docs/core-ontology.md`](docs/core-ontology.md) for the protocol boundary, and [`docs/rfc-vessel-calculus.md`](docs/rfc-vessel-calculus.md) for the vessel calculus that defines v2.
