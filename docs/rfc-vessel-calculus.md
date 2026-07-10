@@ -108,11 +108,23 @@ The protocol's claim to be a protocol — rather than a TypeScript library — i
 
 ## What v2 deliberately does not do
 
-- No item definitions, stats, quantities, or stacking — sibling protocol territory. (Capacity — `max` counts on accepts — is the most tempting; it is deferred, not rejected, because it is the first constraint that requires *counting* rather than *matching*, and it should wait for a consumer.)
+- No item definitions, stats, quantities, or stacking — sibling protocol territory. (Capacity — `max` counts on accepts — is the most tempting; it is deferred, not rejected, because it is the first constraint that requires *counting* rather than *matching*, and it should wait for a consumer. See the deferral rationale below.)
 - No display metadata, unchanged from v1.
 - No embedding by reference, as above.
 - No layout generalization (hex, 3D, spans). The 4-face planar figure is the constraint that makes paperdoll feel like paperdoll; loosening it is a fork, not a version.
 - No diff/patch in core. Pure operations make diffing trivial to build *on top*; it can live in a companion package without touching the protocol.
+
+### Capacity: the deferral rationale
+
+Recorded 2026-07-10, after discussion. Capacity looks like one field (`max: n` on a vessel or token) and is actually a trapdoor — the one extension where the cheap version and the valuable version are far apart. The full analysis, so the reasoning survives to whenever this reopens:
+
+1. **It is the missing law of the founding metaphor.** v2 cannot say "one hat per head" — a head vessel accepting hats lawfully contains forty. Every classic paper-doll mechanic (one weapon per hand, one ring per finger) is a capacity-1 constraint. This is the strongest argument *for* capacity, and even it waits.
+2. **Counting collides with the opacity boundary.** Is a stack of 20 arrows one element with `data: {count: 20}` (protocol-blind — `data` is opaque, always) or 20 elements? For capacity to see quantity, `count` must be promoted into the envelope — an ontological shift: elements stop being individuals and become multisets, and every law that says "each element" must be re-read as "each unit."
+3. **Token budgets turn validation from a scan into a search.** With per-token budgets, an element matching two budgeted tokens raises "which budget does it consume?" — vessel validity becomes "does an assignment of elements to budgets exist," i.e. bipartite matching. Every current law is a linear scan; this one is combinatorial. Escape hatch if ever needed: a **disjointness law** — where any token carries `max`, a vessel's tokens must be pairwise non-overlapping — which forces the assignment and restores linear checking. One law added to avoid one algorithm class.
+4. **It breaks locality, and paperfold feels it first.** Admission would depend on a vessel's *other contents*, not just (vessel, element). Consequences: operation order starts to matter at full vessels, patches stop commuting exactly at capacity boundaries (dragging paperfold toward its expensive commutation frontier ahead of schedule), and multi-step swaps through full inventories require genuinely transactional patches.
+5. **Half the use cases dissolve into existing machinery.** Weighted capacity ("2 cars or 1 truck") and spatial capacity (grid inventories) are largely expressible today as embedded bodies of `max`-1-style cell vessels — the calculus is secretly good at spatial capacity because it is a spatial calculus. The fragment that does not dissolve is pure counting ("any 5, arrangement irrelevant").
+
+**Decision: build nothing until the first-party gamecraft consumer (`design-gamecraft-consumer.md`) concretely fails to express a mechanic without it.** That moment identifies which fragment is actually needed (possibly only `max: 1`, a far smaller RFC than the survey above) and supplies a real consumer to test the disjointness trade against. Waiting is free: strict unknown-key validation means no capacity dialect can drift into existence in the interim — an `accepts` token carrying `max` is rejected by every v2 validator today, so capacity arrives as a clean versioned event or not at all. If it arrives, the expected shape is: `max` on vessels and on tokens, the disjointness law, `count` on the element envelope, and weights/shapes explicitly rejected with the dissolution argument.
 
 ## Sequencing
 
