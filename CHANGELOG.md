@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0 — 2026-07-10
+
+The symmetry-completion (paperfold prerequisite (a), per `docs/rfc-paperfold.md`): every destructive or overwriting operation now returns what it removed, so callers can construct inverse operations without diffing. API-only — no document format changes, protocol string stays `paper-doll/v2`.
+
+### Changed (breaking TypeScript API, not protocol)
+
+- `connect` returns `{ body, displaced: Connection[] }` — the prior connections (0–2) the new one overwrote.
+- `disconnect` returns `{ body, removed: Connection | null }`.
+- `deleteVessel` returns `{ body, vessel, collapsed: Connection | null }` — the deleted vessel exactly as it was (its ports encode the severed connections, recoverable by reciprocity), and the neighbor connection created by `collapseOppositeNeighbors`, if any.
+- `removeElement` already returned `{ body, element }`; creation-only operations (`insertVessel`, `insertElement`) and `moveElement` (which destroys nothing) are unchanged.
+
+Round-trip invertibility is covered by tests: delete-then-restore and disconnect-then-reconnect reproduce the original body exactly.
+
+
 ## 0.6.0 — 2026-07-08
 
 Step 2 of the vessel-calculus roadmap: the `paper-doll/v2` protocol. Breaking throughout; v1 documents migrate with `migrateV1()`.

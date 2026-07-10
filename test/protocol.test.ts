@@ -3,6 +3,7 @@ import {
   connect,
   deleteVessel,
   deriveLayout,
+  disconnect,
   insertElement,
   insertVessel,
   isAccepted,
@@ -228,9 +229,10 @@ describe("paper doll protocol v2", () => {
       vessels: { body: {}, head: {} }
     };
     const before = structuredClone(body);
-    const connected = connect(body, { vessel: "body", side: "top" }, { vessel: "head", side: "bottom" });
+    const { body: connected, displaced } = connect(body, { vessel: "body", side: "top" }, { vessel: "head", side: "bottom" });
 
     expect(body).toEqual(before);
+    expect(displaced).toEqual([]);
     expect(connected.vessels.body.ports?.top).toEqual({ vessel: "head", side: "bottom" });
     expect(connected.vessels.head.ports?.bottom).toEqual({ vessel: "body", side: "top" });
 
@@ -275,9 +277,17 @@ describe("paper doll protocol v2", () => {
 
   it("deleteVessel collapses opposite neighbors and refuses the root", () => {
     const inserted = insertVessel(DEFAULT_DOCUMENT.body, {}, { at: { vessel: "body", side: "right" } });
-    const next = deleteVessel(inserted.body, inserted.vesselId, { collapseOppositeNeighbors: true });
+    const { body: next, vessel, collapsed } = deleteVessel(inserted.body, inserted.vesselId, {
+      collapseOppositeNeighbors: true
+    });
 
     expect(next.vessels[inserted.vesselId]).toBeUndefined();
+    expect(vessel.ports?.left).toEqual({ vessel: "body", side: "right" });
+    expect(vessel.ports?.right).toEqual({ vessel: "right-arm", side: "left" });
+    expect(collapsed).toEqual({
+      from: { vessel: "body", side: "right" },
+      to: { vessel: "right-arm", side: "left" }
+    });
     expect(next.vessels.body.ports?.right).toEqual({ vessel: "right-arm", side: "left" });
     expect(next.vessels["right-arm"].ports?.left).toEqual({ vessel: "body", side: "right" });
     expect(parseDocument({ ...DEFAULT_DOCUMENT, body: next }).ok).toBe(true);
@@ -286,9 +296,50 @@ describe("paper doll protocol v2", () => {
   });
 
   it("deleteVessel removes free vessels", () => {
-    const next = deleteVessel(DEFAULT_DOCUMENT.body, "floating");
+    const { body: next, vessel, collapsed } = deleteVessel(DEFAULT_DOCUMENT.body, "floating");
     expect(next.vessels.floating).toBeUndefined();
+    expect(vessel).toEqual(DEFAULT_DOCUMENT.body.vessels.floating);
+    expect(collapsed).toBeNull();
     expect(parseDocument({ ...DEFAULT_DOCUMENT, body: next }).ok).toBe(true);
+  });
+
+  it("connect reports displaced connections and disconnect reports the removed one", () => {
+    const chain = connect(
+      { root: "a", vessels: { a: {}, b: {}, c: {} } },
+      { vessel: "a", side: "right" },
+      { vessel: "b", side: "left" }
+    ).body;
+
+    // rewiring a.right to c displaces the a-b connection
+    const rewired = connect(chain, { vessel: "a", side: "right" }, { vessel: "c", side: "left" });
+    expect(rewired.displaced).toEqual([
+      { from: { vessel: "a", side: "right" }, to: { vessel: "b", side: "left" } }
+    ]);
+    expect(rewired.body.vessels.b.ports?.left).toBeUndefined();
+
+    const severed = disconnect(chain, { vessel: "b", side: "left" });
+    expect(severed.removed).toEqual({
+      from: { vessel: "b", side: "left" },
+      to: { vessel: "a", side: "right" }
+    });
+    expect(disconnect(severed.body, { vessel: "b", side: "left" }).removed).toBeNull();
+  });
+
+  it("destructive operations return enough to undo themselves", () => {
+    // deleteVessel round-trip: re-insert the returned vessel and reconnect its ports
+    const original = DEFAULT_DOCUMENT.body;
+    const { body: without, vessel } = deleteVessel(original, "missile-right");
+    let restored = insertVessel(without, { accepts: vessel.accepts, contains: vessel.contains }, { id: "missile-right" }).body;
+    for (const [side, port] of Object.entries(vessel.ports ?? {})) {
+      if (port) restored = connect(restored, { vessel: "missile-right", side: side as never }, port).body;
+    }
+    expect(restored).toEqual(original);
+
+    // disconnect round-trip: reconnect the removed connection
+    const cut = disconnect(original, { vessel: "feet", side: "right" });
+    expect(cut.removed).not.toBeNull();
+    const rejoined = connect(cut.body, cut.removed!.from, cut.removed!.to).body;
+    expect(rejoined).toEqual(original);
   });
 
   it("insertElement always enforces acceptance", () => {

@@ -304,8 +304,11 @@ export function isAccepted(
 }
 
 // Topology operations
+//
+// Every operation that destroys or overwrites protocol state returns what it
+// removed, so callers can construct the inverse operation without diffing.
 
-export function connect(body: Body, from: Endpoint, to: Endpoint): Body {
+export function connect(body: Body, from: Endpoint, to: Endpoint): { body: Body; displaced: Connection[] } {
   assertEndpoint(body, from, "from");
   assertEndpoint(body, to, "to");
   if (from.vessel === to.vessel) {
@@ -316,18 +319,23 @@ export function connect(body: Body, from: Endpoint, to: Endpoint): Body {
   }
 
   const next = cloneBody(body);
-  clearPort(next, from);
-  clearPort(next, to);
+  const displaced: Connection[] = [];
+  for (const endpoint of [from, to]) {
+    const removed = clearPort(next, endpoint);
+    if (removed && !displaced.some((connection) => sameConnection(connection, removed))) {
+      displaced.push(removed);
+    }
+  }
   setPort(next, from, to);
   setPort(next, to, from);
-  return next;
+  return { body: next, displaced };
 }
 
-export function disconnect(body: Body, endpoint: Endpoint): Body {
+export function disconnect(body: Body, endpoint: Endpoint): { body: Body; removed: Connection | null } {
   assertEndpoint(body, endpoint, "endpoint");
   const next = cloneBody(body);
-  clearPort(next, endpoint);
-  return next;
+  const removed = clearPort(next, endpoint);
+  return { body: next, removed };
 }
 
 export function insertVessel(
@@ -352,29 +360,35 @@ export function insertVessel(
     assertEndpoint(body, at, "at");
     const prior = body.vessels[at.vessel]?.ports?.[at.side];
     if (prior) {
-      next = connect(next, { vessel: vesselId, side: at.side }, prior);
+      next = connect(next, { vessel: vesselId, side: at.side }, prior).body;
     }
-    next = connect(next, at, { vessel: vesselId, side: OPPOSITE_SIDES[at.side] });
+    next = connect(next, at, { vessel: vesselId, side: OPPOSITE_SIDES[at.side] }).body;
   }
 
   return { body: next, vesselId };
 }
 
-export function deleteVessel(body: Body, vesselId: VesselId, options: DeleteVesselOptions = {}): Body {
+export function deleteVessel(
+  body: Body,
+  vesselId: VesselId,
+  options: DeleteVesselOptions = {}
+): { body: Body; vessel: Vessel; collapsed: Connection | null } {
   if (vesselId === body.root) throw new Error(`Cannot delete root vessel "${vesselId}".`);
-  if (!body.vessels[vesselId]) throw new Error(`Vessel "${vesselId}" does not exist.`);
+  const deleted = body.vessels[vesselId];
+  if (!deleted) throw new Error(`Vessel "${vesselId}" does not exist.`);
 
   const deletedConnections = deriveConnections(body)
     .map((connection) => connectionThroughVessel(connection, vesselId))
     .filter((connection): connection is { deleted: Endpoint; neighbor: Endpoint } => Boolean(connection));
   const next = cloneBody(body);
+  const vessel = cloneVessel(deleted);
 
   delete next.vessels[vesselId];
 
-  for (const vessel of Object.values(next.vessels)) {
+  for (const remaining of Object.values(next.vessels)) {
     for (const side of SIDES) {
-      if (vessel.ports?.[side]?.vessel === vesselId) {
-        delete vessel.ports[side];
+      if (remaining.ports?.[side]?.vessel === vesselId) {
+        delete remaining.ports[side];
       }
     }
   }
@@ -388,10 +402,11 @@ export function deleteVessel(body: Body, vesselId: VesselId, options: DeleteVess
     first.neighbor.vessel !== second.neighbor.vessel &&
     first.deleted.side === OPPOSITE_SIDES[second.deleted.side]
   ) {
-    return connect(next, first.neighbor, second.neighbor);
+    const collapsed: Connection = { from: first.neighbor, to: second.neighbor };
+    return { body: connect(next, first.neighbor, second.neighbor).body, vessel, collapsed };
   }
 
-  return next;
+  return { body: next, vessel, collapsed: null };
 }
 
 // Containment operations
@@ -707,15 +722,23 @@ function hasPorts(vessel: Vessel): boolean {
   return Object.values(vessel.ports ?? {}).some(Boolean);
 }
 
-function clearPort(body: Body, endpoint: Endpoint): void {
+function clearPort(body: Body, endpoint: Endpoint): Connection | null {
   const current = body.vessels[endpoint.vessel].ports?.[endpoint.side];
-  if (!current) return;
+  if (!current) return null;
 
   delete body.vessels[endpoint.vessel].ports?.[endpoint.side];
   const reciprocal = body.vessels[current.vessel]?.ports;
   if (reciprocal?.[current.side]?.vessel === endpoint.vessel && reciprocal[current.side]?.side === endpoint.side) {
     delete reciprocal[current.side];
   }
+  return {
+    from: { vessel: endpoint.vessel, side: endpoint.side },
+    to: { vessel: current.vessel, side: current.side }
+  };
+}
+
+function sameConnection(a: Connection, b: Connection): boolean {
+  return canonicalConnectionKey(a.from, a.to) === canonicalConnectionKey(b.from, b.to);
 }
 
 function setPort(body: Body, from: Endpoint, to: Endpoint): void {

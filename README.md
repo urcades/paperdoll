@@ -97,7 +97,21 @@ insertElement(withElbow, "elbow", { kind: "item", type: "hat" });
 const swapped = moveElement(body, "left-hand", 0, "right-hand");
 ```
 
-All editing helpers return new objects and do not mutate their inputs. Operations enforce local laws (existing endpoints, opposition, no self-connections, compatibility) and throw on violation; graph-global laws (planarity, reachability) are checked by `parseDocument` / `validateDocument`, which callers run after a batch of edits — legitimate multi-step edits pass through globally incomplete states.
+All editing helpers return new objects and do not mutate their inputs. Destructive and overwriting operations additionally return what they removed, so every edit can be undone without diffing:
+
+```ts
+const { body: severed, vessel, collapsed } = deleteVessel(body, "left-lower-arm");
+// vessel: the deleted vessel exactly as it was (accepts, contains, ports)
+// collapsed: the neighbor connection created by collapseOppositeNeighbors, or null
+
+const { body: cut, removed } = disconnect(body, { vessel: "feet", side: "right" });
+// removed: the severed connection, or null if the port was empty
+
+const { body: wired, displaced } = connect(body, from, to);
+// displaced: any prior connections (0-2) that the new one overwrote
+```
+
+Operations enforce local laws (existing endpoints, opposition, no self-connections, compatibility) and throw on violation; graph-global laws (planarity, reachability) are checked by `parseDocument` / `validateDocument`, which callers run after a batch of edits — legitimate multi-step edits pass through globally incomplete states.
 
 ## Migrating from v1
 
