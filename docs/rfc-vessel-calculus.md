@@ -126,11 +126,29 @@ Recorded 2026-07-10, after discussion. Capacity looks like one field (`max: n` o
 
 **Decision: build nothing until the first-party gamecraft consumer (`design-gamecraft-consumer.md`) concretely fails to express a mechanic without it.** That moment identifies which fragment is actually needed (possibly only `max: 1`, a far smaller RFC than the survey above) and supplies a real consumer to test the disjointness trade against. Waiting is free: strict unknown-key validation means no capacity dialect can drift into existence in the interim — an `accepts` token carrying `max` is rejected by every v2 validator today, so capacity arrives as a clean versioned event or not at all. If it arrives, the expected shape is: `max` on vessels and on tokens, the disjointness law, `count` on the element envelope, and weights/shapes explicitly rejected with the dissolution argument.
 
+### Identity: the addressing law (planned as paper-doll/v3)
+
+Recorded 2026-07-10, after discussion. Identity splits in two, and the halves land on opposite sides of the protocol boundary:
+
+- **Identity assignment** — who is alice, minting character ids, body factories, registries — is a consumer concern, permanently. Bodies are anonymous values; consumers wrap them (`{ characterId, body }`). The protocol will never own a character registry.
+- **Identity reference** — the address syntax and resolution rules by which *documents* point at vessels and elements — is protocol surface, because sibling documents (paperchain scenes, paperfold patches) are interchange: a Rust validator and a TypeScript validator must resolve `alice.left-hand/steel-dagger` identically. The web analogy: the protocol owns the URL syntax, never the registrar.
+
+The concrete gap in v2: **elements cannot be stably addressed.** `contains` is an ordered array whose indices shift under `removeElement`/`moveElement` — index-paths are invalidated by the very patches paperfold exists to record — and `element.id` is optional with no uniqueness requirement. Both named siblings are blocked on this: paperfold cannot say what a patch touched; paperchain cannot relate a held item to a holder.
+
+**Decision: fold the addressing law into the paperdoll core** as a future `paper-doll/v3`. It passes the annealing test (a law, not a concept — it constrains a field present since v0, adds no fields or primitives), the dependency test (shared prerequisite of two siblings, who must not invent rival address semantics), and the consumer test (interchange validity cannot be enforced consumer-side). Expected content, deliberately tiny:
+
+- **Law 8 (identity):** `element.id`, where present, must be unique within its containing vessel (open sub-question: per-vessel vs per-body scope). Elements without ids are legal but unaddressable — anonymous values.
+- An address grammar for vessel paths and id-bearing element paths, recursing through `element.body`.
+- Mechanical migration: documents with duplicate ids are rejected with precise paths (or deduplicated by suffix — to be decided in the v3 RFC).
+
+Because law 8 changes which documents are valid, it cannot slide into v2 silently — it warrants the protocol-string bump, and a one-law protocol version is an acceptably annealed thing to ship. Cut v3 when paperfold work begins, alongside the API-only symmetry-completion (which needs no protocol bump). Capacity explicitly does **not** ride along (see the deferral rationale above): it adds concepts rather than laws, blocks nothing, and its deferral is free, whereas identity's deferral holds up two siblings.
+
 ## Sequencing
 
 1. **v1.x** — additive groundwork on the current protocol: `insertElement` / `removeElement` / `moveElement` with opt-in compatibility checking, and `matches()` as an exported query. Nothing breaks; consumers get the containment API early.
 2. **v2.0** — the unification: `vessels`, laws 6–7 mandatory, recursion, `Element.type`, deletions of the pool surface. `paper-doll/v2` protocol string, migration helper, JSON Schema published.
-3. **Post-v2** — sibling protocols, named on a `paper*` scheme:
+3. **v3** — the identity/addressing law (law 8) plus the address grammar, cut when paperfold work begins; the destructive-operation symmetry-completion lands beside it as API-only work. See "Identity: the addressing law" above.
+4. **Post-v2** — sibling protocols, named on a `paper*` scheme:
    - item collections (the other half of the `accepts` handshake) — unnamed
    - body profiles (structural conformance, interfaces-for-bodies) — unnamed
    - cross-body relations / scenes (typed relations over vessel addresses, e.g. `holds(alice.left-hand, bob.right-hand)`; the by-reference frontier deliberately exiled from v2) — **paperchain**
