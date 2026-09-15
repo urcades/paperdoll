@@ -1,4 +1,5 @@
 export {
+  MAX_PORTABLE_INTEGER,
   OPPOSITE_SIDES,
   PAPER_DOLL_PROTOCOL,
   SIDES,
@@ -26,7 +27,8 @@ export {
   validateContainedElement,
   validateDocument,
   validateEndpoint,
-  validateKnownKeys
+  validateKnownKeys,
+  validatePortableJson
 } from "./protocol.js";
 
 export type {

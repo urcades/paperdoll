@@ -1,4 +1,5 @@
 export const PAPER_DOLL_PROTOCOL = "paper-doll/v3" as const;
+export const MAX_PORTABLE_INTEGER = 9_007_199_254_740_991;
 
 const V1_PROTOCOL = "paper-doll/v1";
 const V2_PROTOCOL = "paper-doll/v2";
@@ -983,4 +984,82 @@ function isJsonValue(value: unknown, seen = new Set<object>()): value is JsonVal
   if (Array.isArray(value)) return value.every((item) => isJsonValue(item, seen));
   if (!isRecord(value)) return false;
   return Object.values(value).every((item) => isJsonValue(item, seen));
+}
+
+/**
+ * Validate the additive paper-json-portable/v1 profile over an already-parsed
+ * value. The profile uses binary64 number semantics and refuses integral
+ * values outside the range common binary64 JSON implementations preserve
+ * exactly. It never rounds or claims to recover a numeric token already lost
+ * by the caller's parser.
+ */
+export function validatePortableJson(input: unknown): ProtocolError[] {
+  const errors: ProtocolError[] = [];
+  const active = new Set<object>();
+  const invalidValue = (path: string): void => {
+    errors.push({ path, message: "Value must be finite, acyclic JSON for paper-json-portable/v1." });
+  };
+
+  const visit = (value: unknown, path: string): void => {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return;
+
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) {
+        errors.push({ path, message: "Number must be finite for paper-json-portable/v1." });
+      } else if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+        errors.push({
+          path,
+          message: `Integer must be between -${MAX_PORTABLE_INTEGER} and ${MAX_PORTABLE_INTEGER} for paper-json-portable/v1.`
+        });
+      }
+      return;
+    }
+
+    if (typeof value !== "object") {
+      invalidValue(path);
+      return;
+    }
+
+    if (active.has(value)) {
+      invalidValue(path);
+      return;
+    }
+
+    try {
+      const prototype = Object.getPrototypeOf(value);
+      // A JSON object may come from another JavaScript realm, whose
+      // Object.prototype is not reference-equal to this realm's. Its prototype
+      // is still a realm root (its own prototype is null). Class instances and
+      // built-ins such as Date have at least one additional prototype level.
+      const isPlainRecord = prototype === null || Object.getPrototypeOf(prototype) === null;
+      if (!Array.isArray(value) && !isPlainRecord) {
+        invalidValue(path);
+        return;
+      }
+
+      active.add(value);
+      if (Array.isArray(value)) {
+        // Do not dispatch through a caller-controlled array method. Holes are
+        // not values in a parsed JSON array, and inherited numeric properties
+        // must not fill them implicitly.
+        for (let index = 0; index < value.length; index += 1) {
+          const itemPath = `${path}.${index}`;
+          if (!hasOwn(value, index)) {
+            invalidValue(itemPath);
+          } else {
+            visit(value[index], itemPath);
+          }
+        }
+      } else {
+        for (const [key, item] of Object.entries(value)) visit(item, `${path}.${key}`);
+      }
+      active.delete(value);
+    } catch {
+      active.delete(value);
+      invalidValue(path);
+    }
+  };
+
+  visit(input, "$");
+  return errors;
 }
