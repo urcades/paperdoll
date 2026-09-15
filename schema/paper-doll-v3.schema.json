@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/urcades/paperdoll/main/schema/paper-doll-v3.schema.json",
   "title": "paper-doll/v3 document",
-  "description": "A body-like arrangement of vessels. This schema captures the structural laws of paper-doll/v3: shape, ids, known keys, sides. Five laws require evaluation beyond schema and are specified in docs/rfc-vessel-calculus.md: reciprocity (every port is reciprocated by its target through opposite faces), planarity (derived figure coordinates are collision-free and consistent), reachability (every ported vessel is reachable from the root), compatibility (in a vessel that declares accepts, every contained element matches at least one accept token; absent accepts is open, empty accepts is sealed), and identity (law 8: element ids, where present, are unique within their vessel — making the address grammar vessel/element/vessel/... unambiguous). These laws apply recursively to every embedded body.",
+  "description": "A body-like arrangement of vessels. This schema is the structural companion to the current normative paper-doll/v3 specification in docs/spec.md; it captures shape, ids, known keys, and sides. The specification defines every semantic law beyond JSON Schema, including reciprocity, opposition, planarity, reachability, compatibility, recursive validity, identity, addressing, and operation behavior.",
   "type": "object",
   "required": [
     "protocol",

@@ -143,7 +143,7 @@ Both return `Result` values. Migration is strict: a v1 document whose contents v
 
 ## Portability
 
-The protocol is not the TypeScript library — it is the document format plus the laws. [`schema/paper-doll-v3.schema.json`](schema/paper-doll-v3.schema.json) is a JSON Schema (2020-12) capturing the structural laws; laws 2–8 beyond schema expressiveness are specified in [`docs/rfc-vessel-calculus.md`](docs/rfc-vessel-calculus.md). Any language can validate paperdoll documents. (The v2 schema remains in `schema/` for the record.)
+The protocol is the document format plus the laws in the current normative [`paper-doll/v3 specification`](docs/spec.md). [`schema/paper-doll-v3.schema.json`](schema/paper-doll-v3.schema.json) is its structural JSON Schema (2020-12) companion, not a complete specification. Package versions and sibling dependency floors are listed in the [`paper* family compatibility matrix`](docs/family-compatibility.md). Any language can validate paperdoll documents. (The v2 schema remains in `schema/` as a historical artifact.)
 
 ## API
 
@@ -169,8 +169,8 @@ paperdoll is the kernel of a four-protocol family. Each sibling answers a differ
 - [`paperfold`](https://github.com/urcades/paperfold) — *how did a body change?* Patches: diff, apply, compose, invert — change itself as a value, with laws.
 - [`papermold`](https://github.com/urcades/papermold) — *is this body a valid instance of some kind?* Profiles: structural conformance judged against consumer-authored stencils ("is this really mech-shaped?").
 
-The design record lives in this repo: the RFCs under [`docs/`](docs/) capture every decision, every deliberate refusal, and the [transcript](docs/transcript-2026-07-building-the-paper-family.md) of the discussions that produced them.
+The historical design record lives in this repo: the RFCs under [`docs/`](docs/) and the [transcript](docs/transcript-2026-07-building-the-paper-family.md) capture the discussions that produced the family. They are not normative specifications.
 
 ## Design Notes
 
-See [`docs/core-ontology.md`](docs/core-ontology.md) for the protocol boundary, and [`docs/rfc-vessel-calculus.md`](docs/rfc-vessel-calculus.md) for the vessel calculus that defines v2.
+See the current [`paper-doll/v3 specification`](docs/spec.md) for normative behavior. [`docs/core-ontology.md`](docs/core-ontology.md), [`docs/rfc-vessel-calculus.md`](docs/rfc-vessel-calculus.md), the sibling RFCs, and the transcript are historical design records.
