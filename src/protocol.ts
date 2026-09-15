@@ -1027,7 +1027,12 @@ export function validatePortableJson(input: unknown): ProtocolError[] {
 
     try {
       const prototype = Object.getPrototypeOf(value);
-      if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
+      // A JSON object may come from another JavaScript realm, whose
+      // Object.prototype is not reference-equal to this realm's. Its prototype
+      // is still a realm root (its own prototype is null). Class instances and
+      // built-ins such as Date have at least one additional prototype level.
+      const isPlainRecord = prototype === null || Object.getPrototypeOf(prototype) === null;
+      if (!Array.isArray(value) && !isPlainRecord) {
         invalidValue(path);
         return;
       }

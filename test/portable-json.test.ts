@@ -1,3 +1,6 @@
+// @ts-expect-error paperdoll intentionally has no Node runtime/type dependency;
+// this Node-only test uses vm solely to construct a genuinely separate realm.
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 import { MAX_PORTABLE_INTEGER, validatePortableJson } from "../src/index";
@@ -36,6 +39,10 @@ describe("paper-json-portable/v1", () => {
   });
 
   it("is total over invalid host values and reports rather than throwing", () => {
+    class HostClass {
+      value = 1;
+    }
+
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
 
@@ -44,12 +51,18 @@ describe("paper-json-portable/v1", () => {
       { path: "$.self", message: "Value must be finite, acyclic JSON for paper-json-portable/v1." }
     ]);
 
-    expect(validatePortableJson([NaN, Infinity, 1n, new Date(0)])).toEqual([
+    expect(validatePortableJson([NaN, Infinity, 1n, new Date(0), new HostClass()])).toEqual([
       { path: "$.0", message: "Number must be finite for paper-json-portable/v1." },
       { path: "$.1", message: "Number must be finite for paper-json-portable/v1." },
       { path: "$.2", message: "Value must be finite, acyclic JSON for paper-json-portable/v1." },
-      { path: "$.3", message: "Value must be finite, acyclic JSON for paper-json-portable/v1." }
+      { path: "$.3", message: "Value must be finite, acyclic JSON for paper-json-portable/v1." },
+      { path: "$.4", message: "Value must be finite, acyclic JSON for paper-json-portable/v1." }
     ]);
+  });
+
+  it("accepts JSON objects parsed in another JavaScript realm", () => {
+    const crossRealm = runInNewContext('JSON.parse("{\\"nested\\":{\\"amount\\":1.5}}")') as unknown;
+    expect(validatePortableJson(crossRealm)).toEqual([]);
   });
 
   it("allows repeated references when the value has no cycle", () => {
