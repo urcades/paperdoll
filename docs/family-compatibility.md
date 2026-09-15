@@ -9,11 +9,13 @@ versions. This matrix records the jointly verified release set published on
 | Protocol dialect | Published artifact | Runtime dependency contract |
 |---|---|---|
 | `paper-doll/v3` | `paperdoll@0.9.0` | none |
-| `paperchain/v1` | `paperchain@0.2.0` | `paperdoll ^0.9.0` |
+| `paperchain/v1` | `paperchain@0.2.1` | `paperdoll ^0.9.0` |
 | `paperfold/v1`, `paperfold/v2` | `paperfold@0.3.0` | `paperdoll ^0.9.0`, `paperchain ^0.2.0` |
 | `papermold/v1`, `papermold/v2` | `papermold@0.3.0` | `paperdoll ^0.9.0`, `paperchain ^0.2.0` |
 
 All four npm artifact integrity hashes match their locally verified tarballs.
+Paperchain 0.2.1 includes the direct Python API fix for integral move indices
+written as floating-point numbers, such as `0.0`.
 The caret ranges describe npm resolution; all sibling dialects consume
 `paper-doll/v3`, and the v2 scene dialects consume `paperchain/v1` where their
 specifications say so.
