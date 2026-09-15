@@ -14,6 +14,7 @@ import {
   parseDocument,
   removeElement,
   resolveAddress,
+  type Body,
   type PaperDollDocument
 } from "../src/protocol";
 import { DEFAULT_DOCUMENT, LEGACY_V1_DOCUMENT } from "./sample-document";
@@ -29,11 +30,158 @@ function errorMessages(result: ReturnType<typeof parseDocument>): string {
   return result.ok ? "" : result.errors.map((error) => error.message).join("\n");
 }
 
+function constructorVesselDocument(): PaperDollDocument {
+  // Parse the fixture as JSON so its dictionaries have the same prototypes as
+  // documents received over a wire or loaded from disk.
+  return JSON.parse(`{
+    "protocol": "paper-doll/v3",
+    "body": {
+      "root": "root",
+      "vessels": {
+        "root": {
+          "ports": { "right": { "vessel": "constructor", "side": "left" } }
+        },
+        "constructor": {
+          "ports": { "left": { "vessel": "root", "side": "right" } }
+        }
+      }
+    }
+  }`) as PaperDollDocument;
+}
+
 describe("paper doll protocol v3", () => {
   it("accepts the v3 sample document", () => {
     const parsed = parseDocument(DEFAULT_DOCUMENT);
     expect(errorMessages(parsed)).toBe("");
     expect(parsed.ok).toBe(true);
+  });
+
+  it("rejects inherited constructor properties as missing vessels", () => {
+    const missingRoot = JSON.parse(`{
+      "protocol": "paper-doll/v3",
+      "body": { "root": "constructor", "vessels": {} }
+    }`);
+    const missingPortTarget = JSON.parse(`{
+      "protocol": "paper-doll/v3",
+      "body": {
+        "root": "root",
+        "vessels": {
+          "root": {
+            "ports": { "right": { "vessel": "constructor", "side": "left" } }
+          }
+        }
+      }
+    }`);
+
+    expect(errorMessages(parseDocument(missingRoot))).toContain('Root vessel "constructor" does not exist.');
+    expect(errorMessages(parseDocument(missingPortTarget))).toContain('References missing vessel "constructor".');
+    expect(resolveAddress({ root: "root", vessels: { root: {} } }, "constructor")).toBeNull();
+  });
+
+  it("accepts an explicitly declared constructor vessel throughout the protocol", () => {
+    const document = constructorVesselDocument();
+    const constructorRoot = JSON.parse(`{
+      "protocol": "paper-doll/v3",
+      "body": { "root": "constructor", "vessels": { "constructor": {} } }
+    }`) as PaperDollDocument;
+    const parsed = parseDocument(document);
+
+    expect(parsed.ok).toBe(true);
+    expect(parseDocument(constructorRoot).ok).toBe(true);
+    expect(deriveLayout(constructorRoot.body).figure["constructor"]).toEqual({ x: 0, y: 0 });
+    expect(deriveLayout(document.body).figure.constructor).toEqual({ x: 1, y: 0 });
+    expect(resolveAddress(document.body, "constructor")).toMatchObject({
+      kind: "vessel",
+      vesselId: "constructor",
+      vessel: { ports: { left: { vessel: "root", side: "right" } } }
+    });
+
+    const withElement = insertElement(document.body, "constructor", { kind: "item", id: "keepsake" });
+    expect(withElement.vessels["constructor"].contains).toEqual([{ kind: "item", id: "keepsake" }]);
+  });
+
+  it("operations reject a missing constructor vessel without mutating Object", () => {
+    const body: Body = { root: "root", vessels: { root: { contains: [{ kind: "item", id: "keepsake" }] } } };
+    const objectConstructor = Object as unknown as Record<string, unknown>;
+    const originalPorts = Object.getOwnPropertyDescriptor(Object, "ports");
+    const originalContains = Object.getOwnPropertyDescriptor(Object, "contains");
+
+    try {
+      expect(() =>
+        connect(body, { vessel: "root", side: "right" }, { vessel: "constructor", side: "left" })
+      ).toThrow('to references missing vessel "constructor".');
+      expect(() => insertElement(body, "constructor", { kind: "item" })).toThrow(
+        'Vessel "constructor" does not exist.'
+      );
+      expect(() => moveElement(body, "root", 0, "constructor")).toThrow('Vessel "constructor" does not exist.');
+      expect(() => deleteVessel(body, "constructor")).toThrow('Vessel "constructor" does not exist.');
+      expect(Object.hasOwn(Object, "ports")).toBe(originalPorts !== undefined);
+      expect(Object.hasOwn(Object, "contains")).toBe(originalContains !== undefined);
+    } finally {
+      if (originalPorts) Object.defineProperty(Object, "ports", originalPorts);
+      else delete objectConstructor.ports;
+      if (originalContains) Object.defineProperty(Object, "contains", originalContains);
+      else delete objectConstructor.contains;
+    }
+  });
+
+  it("disconnect does not mutate an inherited reciprocal vessel", () => {
+    const originalPorts = Object.getOwnPropertyDescriptor(Object, "ports");
+    const inheritedPorts: Partial<Record<"left", { vessel: string; side: "right" }>> = {
+      left: { vessel: "root", side: "right" }
+    };
+    Object.defineProperty(Object, "ports", { configurable: true, value: inheritedPorts, writable: true });
+
+    try {
+      const body: Body = {
+        root: "root",
+        vessels: { root: { ports: { right: { vessel: "constructor", side: "left" } } } }
+      };
+      const disconnected = disconnect(body, { vessel: "root", side: "right" });
+
+      expect(disconnected.removed).toEqual({
+        from: { vessel: "root", side: "right" },
+        to: { vessel: "constructor", side: "left" }
+      });
+      expect(inheritedPorts.left).toEqual({ vessel: "root", side: "right" });
+    } finally {
+      if (originalPorts) Object.defineProperty(Object, "ports", originalPorts);
+      else delete (Object as unknown as Record<string, unknown>).ports;
+    }
+  });
+
+  it("migration and ID checks distinguish own constructor vessels from inherited properties", () => {
+    const legacyWithConstructorPool = JSON.parse(`{
+      "protocol": "paper-doll/v1",
+      "body": {
+        "root": "root",
+        "slots": { "root": {} },
+        "pools": { "constructor": {} }
+      }
+    }`);
+    const migrated = migrateV1(legacyWithConstructorPool);
+    expect(migrated.ok).toBe(true);
+    if (!migrated.ok) return;
+    expect(Object.hasOwn(migrated.value.body.vessels, "constructor")).toBe(true);
+
+    const inserted = insertVessel({ root: "root", vessels: { root: {} } }, {}, { id: "constructor" });
+    expect(Object.hasOwn(inserted.body.vessels, "constructor")).toBe(true);
+    expect(() => insertVessel(inserted.body, {}, { id: "constructor" })).toThrow("already used");
+
+    const legacyWithInvalidProtoId = JSON.parse(`{
+      "protocol": "paper-doll/v1",
+      "body": {
+        "root": "root",
+        "slots": { "root": {} },
+        "pools": { "__proto__": {} }
+      }
+    }`);
+    const invalidMigration = migrateV1(legacyWithInvalidProtoId);
+    expect(invalidMigration.ok).toBe(false);
+    if (invalidMigration.ok) return;
+    expect(invalidMigration.errors).toContainEqual(
+      expect.objectContaining({ path: "$.body.vessels.__proto__" })
+    );
   });
 
   it("derives figure coordinates and sorted free vessels", () => {

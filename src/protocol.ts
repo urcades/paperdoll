@@ -154,12 +154,12 @@ export function migrateV1(input: unknown): Result<PaperDollDocument, ProtocolErr
     return { ok: false, errors };
   }
 
-  const vessels: Record<string, unknown> = {};
+  const vessels = Object.create(null) as Record<string, unknown>;
   for (const [id, slot] of Object.entries(body.slots)) {
     vessels[id] = migrateV1Vessel(slot);
   }
   for (const [id, pool] of Object.entries(body.pools)) {
-    if (vessels[id] !== undefined) {
+    if (hasOwn(vessels, id)) {
       errors.push({ path: `$.body.pools.${id}`, message: `Pool id "${id}" collides with a slot id; vessel ids share one namespace.` });
       continue;
     }
@@ -238,7 +238,11 @@ function deriveLayoutResult(body: Body, path: string): Result<DerivedLayout, Pro
     const vesselId = queue.shift();
     if (!vesselId) continue;
 
-    const vessel = body.vessels[vesselId];
+    const vessel = ownValue(body.vessels, vesselId);
+    if (!vessel) {
+      errors.push({ path: `${path}.vessels.${vesselId}`, message: `Vessel "${vesselId}" does not exist.` });
+      continue;
+    }
     const sourcePosition = figure[vesselId];
 
     for (const [side, target] of typedEntries(vessel.ports ?? {})) {
@@ -248,7 +252,7 @@ function deriveLayoutResult(body: Body, path: string): Result<DerivedLayout, Pro
         x: sourcePosition.x + vector.x,
         y: sourcePosition.y + vector.y
       };
-      const existing = figure[target.vessel];
+      const existing = ownValue(figure, target.vessel);
 
       if (existing) {
         if (existing.x !== expected.x || existing.y !== expected.y) {
@@ -278,7 +282,7 @@ function deriveLayoutResult(body: Body, path: string): Result<DerivedLayout, Pro
 
   const free: VesselId[] = [];
   for (const [vesselId, vessel] of Object.entries(body.vessels)) {
-    if (figure[vesselId]) continue;
+    if (hasOwn(figure, vesselId)) continue;
     if (hasPorts(vessel)) {
       errors.push({
         path: `${path}.vessels.${vesselId}`,
@@ -333,7 +337,7 @@ export function resolveAddress(body: Body, address: string): ResolvedAddress | n
 
   for (;;) {
     const vesselId = segments[position] as string;
-    const vessel = scope.vessels[vesselId];
+    const vessel = ownValue(scope.vessels, vesselId);
     if (!vessel) return null;
     if (position === segments.length - 1) {
       return { kind: "vessel", body: scope, vesselId, vessel };
@@ -455,7 +459,7 @@ export function insertVessel(
   if (options.at) {
     const at = options.at;
     assertEndpoint(body, at, "at");
-    const prior = body.vessels[at.vessel]?.ports?.[at.side];
+    const prior = ownValue(body.vessels, at.vessel)?.ports?.[at.side];
     if (prior) {
       bridged = { from: { vessel: at.vessel, side: at.side }, to: { vessel: prior.vessel, side: prior.side } };
       next = connect(next, { vessel: vesselId, side: at.side }, prior).body;
@@ -472,7 +476,7 @@ export function deleteVessel(
   options: DeleteVesselOptions = {}
 ): { body: Body; vessel: Vessel; collapsed: Connection | null } {
   if (vesselId === body.root) throw new Error(`Cannot delete root vessel "${vesselId}".`);
-  const deleted = body.vessels[vesselId];
+  const deleted = ownValue(body.vessels, vesselId);
   if (!deleted) throw new Error(`Vessel "${vesselId}" does not exist.`);
 
   const deletedConnections = deriveConnections(body)
@@ -592,7 +596,7 @@ function validateBody(input: unknown, path: string, errors: ProtocolError[]): vo
     return;
   }
 
-  if (isId(input.root) && !input.vessels[input.root]) {
+  if (isId(input.root) && !hasOwn(input.vessels, input.root)) {
     errors.push({ path: `${path}.root`, message: `Root vessel "${input.root}" does not exist.` });
   }
 
@@ -659,7 +663,7 @@ function validatePorts(body: Body, path: string, errors: ProtocolError[]): void 
       if (!port) continue;
       const portPath = `${path}.vessels.${vesselId}.ports.${side}`;
 
-      if (!body.vessels[port.vessel]) {
+      if (!hasOwn(body.vessels, port.vessel)) {
         errors.push({ path: portPath, message: `References missing vessel "${port.vessel}".` });
         continue;
       }
@@ -671,7 +675,7 @@ function validatePorts(body: Body, path: string, errors: ProtocolError[]): void 
         });
       }
 
-      const reciprocal = body.vessels[port.vessel]?.ports?.[port.side];
+      const reciprocal = ownValue(body.vessels, port.vessel)?.ports?.[port.side];
       if (!reciprocal || reciprocal.vessel !== vesselId || reciprocal.side !== side) {
         errors.push({
           path: portPath,
@@ -793,7 +797,7 @@ function validateId(value: string, path: string, errors: ProtocolError[]): void 
 // Operation internals
 
 function getVessel(body: Body, vesselId: VesselId): Vessel {
-  const vessel = body.vessels[vesselId];
+  const vessel = ownValue(body.vessels, vesselId);
   if (!vessel) throw new Error(`Vessel "${vesselId}" does not exist.`);
   return vessel;
 }
@@ -832,7 +836,9 @@ function assertAccepted(vessel: Vessel, element: ContainedElement, vesselId: Ves
 }
 
 function assertEndpoint(body: Body, endpoint: Endpoint, label: string): void {
-  if (!body.vessels[endpoint.vessel]) throw new Error(`${label} references missing vessel "${endpoint.vessel}".`);
+  if (!hasOwn(body.vessels, endpoint.vessel)) {
+    throw new Error(`${label} references missing vessel "${endpoint.vessel}".`);
+  }
   if (!isSide(endpoint.side)) throw new Error(`${label} side must be top, right, bottom, or left.`);
 }
 
@@ -840,14 +846,14 @@ function assertAvailableId(body: Body, id: string): void {
   if (!isId(id)) {
     throw new Error(`Id "${id}" must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens.`);
   }
-  if (body.vessels[id]) {
+  if (hasOwn(body.vessels, id)) {
     throw new Error(`Id "${id}" is already used by an existing vessel.`);
   }
 }
 
 function nextVesselId(body: Body): VesselId {
   let index = 1;
-  while (body.vessels[`vessel-${index}`]) index += 1;
+  while (hasOwn(body.vessels, `vessel-${index}`)) index += 1;
   return `vessel-${index}`;
 }
 
@@ -856,11 +862,12 @@ function hasPorts(vessel: Vessel): boolean {
 }
 
 function clearPort(body: Body, endpoint: Endpoint): Connection | null {
-  const current = body.vessels[endpoint.vessel].ports?.[endpoint.side];
+  const vessel = ownValue(body.vessels, endpoint.vessel) as Vessel;
+  const current = vessel.ports?.[endpoint.side];
   if (!current) return null;
 
-  delete body.vessels[endpoint.vessel].ports?.[endpoint.side];
-  const reciprocal = body.vessels[current.vessel]?.ports;
+  delete vessel.ports?.[endpoint.side];
+  const reciprocal = ownValue(body.vessels, current.vessel)?.ports;
   if (reciprocal?.[current.side]?.vessel === endpoint.vessel && reciprocal[current.side]?.side === endpoint.side) {
     delete reciprocal[current.side];
   }
@@ -875,7 +882,7 @@ function sameConnection(a: Connection, b: Connection): boolean {
 }
 
 function setPort(body: Body, from: Endpoint, to: Endpoint): void {
-  const vessel = body.vessels[from.vessel];
+  const vessel = ownValue(body.vessels, from.vessel) as Vessel;
   vessel.ports = vessel.ports ?? {};
   vessel.ports[from.side] = { vessel: to.vessel, side: to.side };
 }
@@ -941,6 +948,14 @@ function cloneJsonValue(value: JsonValue | undefined): JsonValue | undefined {
 
 function typedEntries<T>(input: Partial<Record<Side, T>>): [Side, T | undefined][] {
   return Object.entries(input) as [Side, T | undefined][];
+}
+
+function hasOwn(object: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function ownValue<T>(record: Record<string, T>, key: string): T | undefined {
+  return hasOwn(record, key) ? record[key] : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
