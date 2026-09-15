@@ -241,6 +241,25 @@ papermold:
    is equivalent to the original in paperchain while remaining a different
    stored scene value in paperfold.
 
+<a id="portable-json"></a>
+## Optional portable JSON profile
+
+`paper-json-portable/v1` is an additive interchange profile. A value conforms
+when it is acyclic JSON, every number has a finite IEEE 754 binary64 value,
+and every number whose resulting value is integral is between
+`-9007199254740991` and `9007199254740991`, inclusive. Negative zero is equal
+to zero. The rule applies recursively to the complete exchanged value,
+including opaque `ContainedElement.data`.
+
+Conformance to this profile is a second verdict. It does not change the
+validity of any `paper-doll/v3` document or other current paper-family dialect.
+An implementation MAY use `validatePortableJson` to obtain that verdict over
+an already parsed value. Since a binary64 parser may already have rounded a
+numeric token, such validation MUST NOT claim to recover or certify the
+token's original integer. Producers that require exact integers outside the
+safe range MUST encode them as canonical decimal strings under a
+consumer-defined field contract.
+
 <a id="editing-operations"></a>
 ## Editing operations
 

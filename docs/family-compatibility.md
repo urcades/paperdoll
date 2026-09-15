@@ -22,18 +22,28 @@ normative protocol dependency: all sibling dialects in this table consume
 `paper-doll/v3`, and the v2 scene dialects consume `paperchain/v1` where their
 specifications say so.
 
-## Unreleased repository contents
+## Prepared release set
 
-The current `paperchain` and `paperfold` branches still carry manifest versions
-`0.1.0` and `0.2.0`, respectively, but now require `paperdoll ^0.8.3`. These
-are unreleased dependency-floor changes relative to the published
-`paperchain@0.1.0` and `paperfold@0.2.0` artifacts; they are not evidence of
-new published package versions. The current `papermold` branch remains on its
-published `paperdoll ^0.8.2` dependency floor.
+The following additive releases are prepared for joint verification. This table
+records the intended dependency contracts, not a claim that the artifacts have
+already been published:
 
-No package version has been bumped for a next local release train, so this
-document does not present one as current. Update the published table only
-after the corresponding artifacts actually exist.
+| Prepared artifact | Runtime dependency contract |
+|---|---|
+| `paperdoll@0.9.0` | none |
+| `paperchain@0.2.0` | `paperdoll ^0.9.0` |
+| `paperfold@0.3.0` | `paperdoll ^0.9.0`, `paperchain ^0.2.0` |
+| `papermold@0.3.0` | `paperdoll ^0.9.0`, `paperchain ^0.2.0` |
+
+All protocol dialect strings stay unchanged. The additive
+`paper-json-portable/v1` profile supplies a separate numeric portability verdict;
+it does not narrow the valid sets of the existing dialects. Corpus v2 and the
+viewer opt into that profile. Paperchain's optional conformance tooling includes
+independent standard-library Python references; it adds no upward runtime
+package dependency.
+
+Update the published table only after observing the corresponding registry
+artifacts. Package versions and protocol dialect versions remain independent.
 
 ## Normative specifications
 

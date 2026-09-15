@@ -145,10 +145,12 @@ Both return `Result` values. Migration is strict: a v1 document whose contents v
 
 The protocol is the document format plus the laws in the current normative [`paper-doll/v3 specification`](docs/spec.md). [`schema/paper-doll-v3.schema.json`](schema/paper-doll-v3.schema.json) is its structural JSON Schema (2020-12) companion, not a complete specification. Package versions and sibling dependency floors are listed in the [`paper* family compatibility matrix`](docs/family-compatibility.md). Any language can validate paperdoll documents. (The v2 schema remains in `schema/` as a historical artifact.)
 
+For interchange through implementations that parse JSON numbers as IEEE 754 binary64, the optional [`paper-json-portable/v1` profile](docs/spec.md#portable-json) requires finite numbers and limits integral values to `±9007199254740991`. `validatePortableJson(value)` checks the complete value recursively without changing dialect validity. It cannot recover a numeric token rounded before validation; encode larger exact integers as canonical decimal strings under an application field contract.
+
 ## API
 
-- constants: `PAPER_DOLL_PROTOCOL`, `SIDES`, `OPPOSITE_SIDES`
-- validation: `parseDocument`, `assertDocument`, `validateDocument`, `formatProtocolErrors`
+- constants: `PAPER_DOLL_PROTOCOL`, `SIDES`, `OPPOSITE_SIDES`, `MAX_PORTABLE_INTEGER`
+- validation: `parseDocument`, `assertDocument`, `validateDocument`, `validatePortableJson`, `formatProtocolErrors`
 - piecemeal validation (for sibling protocols embedding kernel fragments): `isId`, `validateKnownKeys`, `validateEndpoint`, `validateConnection`, `validateAcceptToken`, `validateContainedElement`
 - migration: `migrateV1`, `migrateV2`
 - addressing: `parseAddress`, `resolveAddress`

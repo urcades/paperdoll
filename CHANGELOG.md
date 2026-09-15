@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 — 2026-09-15
+
+Additive. Introduces the opt-in `paper-json-portable/v1` interchange profile without changing `paper-doll/v3` validity or its schema.
+
+- `validatePortableJson` recursively rejects non-finite numbers, integral binary64 values outside `±9007199254740991`, cycles, and non-JSON host values.
+- `MAX_PORTABLE_INTEGER` exports the inclusive boundary.
+- The normative specification documents binary64 semantics, negative zero, and canonical decimal strings for application fields that need larger exact integers.
+
 ## 0.8.2 — 2026-07-10
 
 Additive. Exports the piecemeal validators sibling protocols (paperchain, paperfold) were privately copying, so grammar fragments embedded in sibling documents are validated by the kernel's own machinery — explicit versioned coupling instead of silent drift (per the family cross-review):
